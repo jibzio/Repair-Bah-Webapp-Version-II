@@ -69,6 +69,7 @@ export interface AppMapViewProps {
   flyToTrigger?: number;
   bottomPadding?: number;
   onPanStart?: () => void;
+  onPanEnd?: () => void;
   onPanUpdate?: (
     newX: number,
     newY: number,
@@ -96,6 +97,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   flyToTrigger = 0,
   bottomPadding = 0,
   onPanStart,
+  onPanEnd,
   onPanUpdate,
   onZoomChange,
   isLight,
@@ -106,8 +108,13 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   const responderMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const hqMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const programmaticMoveRef = useRef(false);
+  const userPanningRef = useRef(false);
+  const bottomPaddingRef = useRef(bottomPadding);
+  bottomPaddingRef.current = bottomPadding;
   const onPanStartRef = useRef(onPanStart);
   onPanStartRef.current = onPanStart;
+  const onPanEndRef = useRef(onPanEnd);
+  onPanEndRef.current = onPanEnd;
   const onPanUpdateRef = useRef(onPanUpdate);
   onPanUpdateRef.current = onPanUpdate;
 
@@ -282,16 +289,25 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         setMapboxFallback(true);
       });
 
-      map.on('dragstart', () => {
+      map.on('movestart', (e) => {
         if (isUnmounted || !interactive) return;
-        onPanStartRef.current?.();
+        if (Boolean(e.originalEvent) && !programmaticMoveRef.current) {
+          userPanningRef.current = true;
+          onPanStartRef.current?.();
+        }
       });
 
-      map.on('moveend', () => {
+      map.on('moveend', (e) => {
         if (isUnmounted) return;
         if (programmaticMoveRef.current) {
           programmaticMoveRef.current = false;
+          userPanningRef.current = false;
           return;
+        }
+        const isUserMove = Boolean(e.originalEvent) || userPanningRef.current;
+        userPanningRef.current = false;
+        if (interactive && isUserMove) {
+          onPanEndRef.current?.();
         }
         if (!interactive || !map || !onPanUpdateRef.current) return;
         const c = map.getCenter();
@@ -372,20 +388,20 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
           center: [resolvedPinLng, resolvedPinLat],
           zoom: targetZoom,
           duration: 850,
-          padding: { top: 0, right: 0, bottom: bottomPadding, left: 0 },
+          padding: { top: 0, right: 0, bottom: bottomPaddingRef.current, left: 0 },
         });
       } else {
         map.easeTo({
           center: [resolvedPinLng, resolvedPinLat],
           zoom: targetZoom,
           duration: 280,
-          padding: { top: 0, right: 0, bottom: bottomPadding, left: 0 },
+          padding: { top: 0, right: 0, bottom: bottomPaddingRef.current, left: 0 },
         });
       }
     } catch {
       programmaticMoveRef.current = false;
     }
-  }, [resolvedPinLat, resolvedPinLng, zoom, flyToTrigger, bottomPadding]);
+  }, [resolvedPinLat, resolvedPinLng, zoom, flyToTrigger]);
 
   useEffect(() => {
     let frameId = 0;
@@ -534,7 +550,10 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     onPanUpdate(nextX, nextY);
   };
   const handleFallbackPointerUp = () => {
-    draggingRef.current = false;
+    if (draggingRef.current) {
+      draggingRef.current = false;
+      onPanEndRef.current?.();
+    }
   };
 
   const interpMapPos = latLngToMapCoords(interpPos.lat, interpPos.lng);

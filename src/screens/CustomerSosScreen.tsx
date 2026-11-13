@@ -30,7 +30,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { EmergencyBottomSheet } from '../components/EmergencyBottomSheet';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { Sos3DButton } from '../components/button/Sos3DButton';
 import { AppMapView } from '../components/map/AppMapView';
@@ -163,8 +163,35 @@ export const CustomerSosScreen: React.FC = () => {
   const geoRequestIdRef = useRef(0);
   const geoAbortRef = useRef<AbortController | null>(null);
   const autoGpsAttemptedRef = useRef(false);
+  const panEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sigCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingSig = useRef(false);
+
+  const clearPanEndTimer = useCallback(() => {
+    if (panEndTimerRef.current) {
+      clearTimeout(panEndTimerRef.current);
+      panEndTimerRef.current = null;
+    }
+  }, []);
+
+  const expandSheetNow = useCallback(() => {
+    clearPanEndTimer();
+    setSheetCollapsed(false);
+  }, [clearPanEndTimer]);
+
+  const collapseSheetForPan = useCallback(() => {
+    clearPanEndTimer();
+    setShowSuggestions(false);
+    setSheetCollapsed(true);
+  }, [clearPanEndTimer]);
+
+  const scheduleSheetRestore = useCallback(() => {
+    clearPanEndTimer();
+    panEndTimerRef.current = setTimeout(() => {
+      panEndTimerRef.current = null;
+      setSheetCollapsed(false);
+    }, 250);
+  }, [clearPanEndTimer]);
 
   const handleGpsLocate = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -247,18 +274,20 @@ export const CustomerSosScreen: React.FC = () => {
 
   useEffect(() => {
     return () => {
+      clearPanEndTimer();
       geoAbortRef.current?.abort();
     };
-  }, []);
+  }, [clearPanEndTimer]);
 
   useEffect(() => {
     if (state.rescueStage === 0) {
+      clearPanEndTimer();
       autoGpsAttemptedRef.current = false;
       return;
     }
     if (state.rescueStage === 1) {
       setSetupStep('location');
-      setSheetCollapsed(false);
+      expandSheetNow();
       setShowSuggestions(false);
       setFlyTrigger((c) => c + 1);
       setAddressQuery(state.pinnedLocation.address);
@@ -382,6 +411,7 @@ export const CustomerSosScreen: React.FC = () => {
   };
 
   const selectLandmark = (lm: SabahLandmark) => {
+    expandSheetNow();
     ++geoRequestIdRef.current;
     geoAbortRef.current?.abort();
     setIsLocating(false);
@@ -692,7 +722,7 @@ export const CustomerSosScreen: React.FC = () => {
     );
 
     const sheetBottomPadding = sheetCollapsed
-      ? 120
+      ? 96
       : setupStep === 'location'
       ? 235
       : 270;
@@ -714,10 +744,8 @@ export const CustomerSosScreen: React.FC = () => {
               responderLng={responderLng}
               flyToTrigger={flyTrigger}
               bottomPadding={sheetBottomPadding}
-              onPanStart={() => {
-                setShowSuggestions(false);
-                setSheetCollapsed(true);
-              }}
+              onPanStart={collapseSheetForPan}
+              onPanEnd={scheduleSheetRestore}
               onPanUpdate={handleMapPanUpdate}
               onZoomChange={setMapZoom}
               isLight={isLight}
@@ -743,7 +771,7 @@ export const CustomerSosScreen: React.FC = () => {
 
         <button
           onClick={() => {
-            setSheetCollapsed(false);
+            expandSheetNow();
             void handleGpsLocate();
           }}
           disabled={isLocating}
@@ -751,7 +779,7 @@ export const CustomerSosScreen: React.FC = () => {
           aria-busy={isLocating}
           className={`absolute right-3 w-11 h-11 rounded-full bg-[#141923]/95 border border-[#282C37] text-red-400 shadow-xl flex items-center justify-center z-20 disabled:opacity-75 transition-all duration-300 ${
             sheetCollapsed
-              ? 'bottom-[155px]'
+              ? 'bottom-[175px]'
               : setupStep === 'location'
               ? 'bottom-[310px]'
               : 'bottom-[345px]'
@@ -764,68 +792,52 @@ export const CustomerSosScreen: React.FC = () => {
           )}
         </button>
 
-        <motion.div
-          drag="y"
-          dragConstraints={{ top: 0, bottom: 200 }}
-          dragElastic={0.12}
-          onDragEnd={(_e, info) => {
-            if (info.offset.y > 55 || info.velocity.y > 280) {
-              setSheetCollapsed(true);
-            } else if (info.offset.y < -35 || info.velocity.y < -280) {
-              setSheetCollapsed(false);
-            }
-          }}
-          animate={{ y: sheetCollapsed ? 185 : 0 }}
-          transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-          className={`absolute left-0 right-0 bottom-[66px] rounded-t-3xl border-t p-4 shadow-[0_-12px_40px_rgba(0,0,0,0.65)] z-20 ${
-            isLight
-              ? 'bg-white/95 border-slate-200 text-slate-900'
-              : 'bg-[#141923]/95 border-[#282C37] text-white'
-          } backdrop-blur-md`}
-        >
-          <button
-            type="button"
-            onClick={() => setSheetCollapsed((c) => !c)}
-            aria-label={
-              sheetCollapsed
-                ? 'Expand location confirmation sheet'
-                : 'Slide down to view map'
-            }
-            className="w-full flex flex-col items-center pb-2.5 cursor-grab active:cursor-grabbing"
-          >
-            <div className="w-12 h-1.5 rounded-full bg-gray-500/70" />
-          </button>
-
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xs font-black tracking-[0.12em] text-red-400 uppercase">
-                {setupStep === 'location'
-                  ? '1. Set Location'
-                  : setupStep === 'service'
-                  ? '2. Choose Service'
-                  : '3. Confirm Dispatch'}
-              </h2>
-              {state.pinnedLocation.source === 'gps' &&
-                state.pinnedLocation.accuracyMeters !== undefined && (
-                  <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/35 text-blue-400 text-[10px] font-mono font-bold">
-                    GPS ±{state.pinnedLocation.accuracyMeters}m
+        <EmergencyBottomSheet
+          collapsed={sheetCollapsed}
+          onExpand={expandSheetNow}
+          onCollapse={collapseSheetForPan}
+          isLight={isLight}
+          header={
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black tracking-[0.12em] text-red-400 uppercase">
+                  {setupStep === 'location'
+                    ? '1. Set Location'
+                    : setupStep === 'service'
+                    ? '2. Choose Service'
+                    : '3. Confirm Dispatch'}
+                </h2>
+                {state.pinnedLocation.source === 'gps' &&
+                  state.pinnedLocation.accuracyMeters !== undefined && (
+                    <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/35 text-blue-400 text-[10px] font-mono font-bold">
+                      GPS ±{state.pinnedLocation.accuracyMeters}m
+                    </span>
+                  )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {sheetCollapsed && (
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Tap to expand
                   </span>
                 )}
+                <div className="flex items-center gap-1">
+                  {(['location', 'service', 'confirm'] as const).map(
+                    (stepKey) => (
+                      <span
+                        key={stepKey}
+                        className={`h-1.5 rounded-full transition-all ${
+                          setupStep === stepKey
+                            ? 'w-5 bg-red-500'
+                            : 'w-2 bg-gray-600/60'
+                        }`}
+                      />
+                    )
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              {(['location', 'service', 'confirm'] as const).map((stepKey) => (
-                <span
-                  key={stepKey}
-                  className={`h-1.5 rounded-full transition-all ${
-                    setupStep === stepKey
-                      ? 'w-5 bg-red-500'
-                      : 'w-2 bg-gray-600/60'
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
-
+          }
+        >
           {setupStep === 'location' && (
             <div className="space-y-3">
               <div className="relative">
@@ -841,10 +853,11 @@ export const CustomerSosScreen: React.FC = () => {
                     type="text"
                     value={addressQuery}
                     onFocus={() => {
-                      setSheetCollapsed(false);
+                      expandSheetNow();
                       setShowSuggestions(true);
                     }}
                     onChange={(e) => {
+                      expandSheetNow();
                       ++geoRequestIdRef.current;
                       geoAbortRef.current?.abort();
                       setIsLocating(false);
@@ -857,6 +870,7 @@ export const CustomerSosScreen: React.FC = () => {
                   {addressQuery && (
                     <button
                       onClick={() => {
+                        expandSheetNow();
                         ++geoRequestIdRef.current;
                         geoAbortRef.current?.abort();
                         setIsLocating(false);
@@ -870,7 +884,10 @@ export const CustomerSosScreen: React.FC = () => {
                     </button>
                   )}
                   <button
-                    onClick={() => void handleGpsLocate()}
+                    onClick={() => {
+                      expandSheetNow();
+                      void handleGpsLocate();
+                    }}
                     disabled={isLocating}
                     aria-label="Use current GPS location"
                     aria-busy={isLocating}
@@ -885,7 +902,7 @@ export const CustomerSosScreen: React.FC = () => {
                   </button>
                   <button
                     onClick={() => {
-                      setSheetCollapsed(false);
+                      expandSheetNow();
                       setShowSuggestions((s) => !s);
                     }}
                     className="px-2 py-1 rounded-lg bg-red-600/20 text-red-400 text-[10px] font-bold shrink-0"
@@ -917,6 +934,7 @@ export const CustomerSosScreen: React.FC = () => {
                       <button
                         key={`osm-${i}`}
                         onClick={() => {
+                          expandSheetNow();
                           ++geoRequestIdRef.current;
                           geoAbortRef.current?.abort();
                           setIsLocating(false);
@@ -987,7 +1005,7 @@ export const CustomerSosScreen: React.FC = () => {
                     });
                   }
                   setShowSuggestions(false);
-                  setSheetCollapsed(false);
+                  expandSheetNow();
                   setSetupStep('service');
                 }}
                 className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
@@ -1015,7 +1033,10 @@ export const CustomerSosScreen: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSetupStep('location')}
+                  onClick={() => {
+                    expandSheetNow();
+                    setSetupStep('location');
+                  }}
                   className="text-xs font-bold text-red-400 hover:underline shrink-0"
                 >
                   Edit
@@ -1030,6 +1051,7 @@ export const CustomerSosScreen: React.FC = () => {
                       key={svc.id}
                       type="button"
                       onClick={() => {
+                        expandSheetNow();
                         dispatch({ type: 'SELECT_SERVICE', payload: svc });
                         setSetupStep('confirm');
                       }}
@@ -1086,7 +1108,10 @@ export const CustomerSosScreen: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSetupStep('location')}
+                    onClick={() => {
+                      expandSheetNow();
+                      setSetupStep('location');
+                    }}
                     className="text-xs font-bold text-red-400 hover:underline shrink-0"
                   >
                     Change
@@ -1113,7 +1138,10 @@ export const CustomerSosScreen: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSetupStep('service')}
+                    onClick={() => {
+                      expandSheetNow();
+                      setSetupStep('service');
+                    }}
                     className="text-xs font-bold text-red-400 hover:underline shrink-0"
                   >
                     Change
@@ -1124,6 +1152,7 @@ export const CustomerSosScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={async () => {
+                  clearPanEndTimer();
                   dispatch({ type: 'SET_RESCUE_STAGE', payload: 2 });
                   await syncJobToSupabase({
                     id: state.activeJobId,
@@ -1154,7 +1183,7 @@ export const CustomerSosScreen: React.FC = () => {
               </button>
             </div>
           )}
-        </motion.div>
+        </EmergencyBottomSheet>
       </div>
     );
   }
