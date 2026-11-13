@@ -1,12 +1,12 @@
-import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+try {
+  await import('dotenv/config');
+} catch {
+  // Cloud Run injects secrets directly via process.env
+}
 
 const VALID_SERVICES = new Set([
   'patrol_tow',
@@ -208,13 +208,14 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distDir = path.resolve(__dirname, 'dist');
+    const distDir = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
@@ -222,7 +223,11 @@ async function startServer() {
   }
 
   app.listen(port, '0.0.0.0', () => {
-    console.log(`RepairBah Sabah SOS server listening on http://0.0.0.0:${port}`);
+    console.log(
+      `[RepairBah] Listening on 0.0.0.0:${port} (NODE_ENV=${
+        process.env.NODE_ENV || 'development'
+      })`
+    );
   });
 }
 
