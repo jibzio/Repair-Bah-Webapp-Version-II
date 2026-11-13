@@ -29,6 +29,7 @@ export function buildInitialState(): AppState {
     hazardStrobe: false,
 
     rescueStage: 0,
+    resumableStage: null,
     activeJobId: generateUuid(),
     selectedService: SERVICES[0],
     pinnedLocation: {
@@ -43,6 +44,7 @@ export function buildInitialState(): AppState {
     responderName: 'Foreman Roy (Hafiz Bin Rosli)',
     responderUnit: 'Patrol + Flatbed KK-204',
     responderProgress: 0.08,
+    responderLocation: null,
     slaSecondsRemaining: 15 * 60,
     dispatchWarning: 'NONE',
     arrivalPinVerified: false,
@@ -219,9 +221,22 @@ export function getInitialState(): AppState {
         ? saved.language
         : baseState.language;
 
-    const validActiveJobId = isValidUuid(saved.activeJobId)
-      ? saved.activeJobId
-      : generateUuid();
+    if (validStage === 10 && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(
+          PERSISTED_STATE_KEY,
+          JSON.stringify({ ...saved, rescueStage: 0 })
+        );
+      } catch {
+        // Ignore storage quota errors
+      }
+    }
+
+    const hasResumable = validStage >= 1 && validStage <= 9;
+    const validActiveJobId =
+      hasResumable && isValidUuid(saved.activeJobId)
+        ? saved.activeJobId
+        : generateUuid();
 
     return {
       ...baseState,
@@ -232,15 +247,14 @@ export function getInitialState(): AppState {
       ledger: validLedger,
       displayMode: validDisplayMode,
       language: validLanguage,
-      rescueStage: validStage,
-      responderClaimed: validStage >= 3 ? true : baseState.responderClaimed,
-      arrivalPinVerified: validStage >= 5 ? true : baseState.arrivalPinVerified,
+      rescueStage: 0,
+      resumableStage: hasResumable ? validStage : null,
+      responderClaimed:
+        hasResumable && validStage >= 3 ? true : baseState.responderClaimed,
+      arrivalPinVerified:
+        hasResumable && validStage >= 5 ? true : baseState.arrivalPinVerified,
       vaultStatus:
-        validStage === 10
-          ? 'DISBURSED'
-          : validStage >= 7
-          ? 'RESERVED'
-          : baseState.vaultStatus,
+        hasResumable && validStage >= 7 ? 'RESERVED' : baseState.vaultStatus,
     };
   } catch {
     return baseState;
@@ -285,7 +299,30 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         rescueStage: action.payload,
+        resumableStage:
+          action.payload > 0 ? null : state.resumableStage,
         screen: 'sos',
+      };
+    case 'RESUME_SAVED_RESCUE':
+      if (!state.resumableStage) return state;
+      return {
+        ...state,
+        rescueStage: state.resumableStage,
+        resumableStage: null,
+        screen: 'sos',
+      };
+    case 'DISMISS_RESUMABLE_RESCUE':
+      return {
+        ...state,
+        resumableStage: null,
+        activeJobId: generateUuid(),
+        responderClaimed: false,
+        responderProgress: 0.08,
+        responderLocation: null,
+        slaSecondsRemaining: 15 * 60,
+        dispatchWarning: 'NONE',
+        arrivalPinVerified: false,
+        vaultStatus: 'IDLE',
       };
     case 'SELECT_SERVICE': {
       const svc = action.payload;
@@ -320,6 +357,15 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, responderOnline: !state.responderOnline };
     case 'SET_RESPONDER_PROGRESS':
       return { ...state, responderProgress: action.payload };
+    case 'SET_RESPONDER_POS':
+      return {
+        ...state,
+        responderProgress: action.payload.progress,
+        responderLocation: {
+          lat: action.payload.lat,
+          lng: action.payload.lng,
+        },
+      };
     case 'TICK_SLA': {
       if (state.rescueStage !== 3) return state;
       const nextSec = Math.max(0, state.slaSecondsRemaining - 1);
@@ -437,9 +483,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         rescueStage: 0,
+        resumableStage: null,
         activeJobId: generateUuid(),
         responderClaimed: false,
         responderProgress: 0.08,
+        responderLocation: null,
         slaSecondsRemaining: 15 * 60,
         dispatchWarning: 'NONE',
         arrivalPinVerified: false,

@@ -54,6 +54,10 @@ export default function App() {
   // Persist customer ecosystem & active rescueStage to localStorage
   useEffect(() => {
     try {
+      const stageToPersist =
+        state.rescueStage > 0
+          ? state.rescueStage
+          : state.resumableStage ?? 0;
       localStorage.setItem(
         PERSISTED_STATE_KEY,
         JSON.stringify({
@@ -64,7 +68,7 @@ export default function App() {
           ledger: state.ledger,
           displayMode: state.displayMode,
           language: state.language,
-          rescueStage: state.rescueStage,
+          rescueStage: stageToPersist,
         })
       );
     } catch {
@@ -79,6 +83,7 @@ export default function App() {
     state.displayMode,
     state.language,
     state.rescueStage,
+    state.resumableStage,
   ]);
 
   // Sync URL hash safely
@@ -332,6 +337,34 @@ export default function App() {
     hydrateRemoteRow,
     notify,
   ]);
+
+  // Subscribe to realtime:job_tracking:<jobId> POS_UPDATE telemetry during active rescue
+  useEffect(() => {
+    const trackingActive =
+      (state.rescueStage >= 2 && state.rescueStage <= 9) ||
+      state.responderClaimed;
+    if (!trackingActive || !state.activeJobId) return;
+
+    const jobId = state.activeJobId;
+    realtimeBus.joinJobTrackingChannel(jobId);
+
+    const unsubPos = realtimeBus.onPosUpdate((pos) => {
+      if (pos.jobId && pos.jobId !== stateRef.current.activeJobId) return;
+      dispatch({
+        type: 'SET_RESPONDER_POS',
+        payload: {
+          progress: Math.max(0, Math.min(1, pos.progress)),
+          lat: pos.lat,
+          lng: pos.lng,
+        },
+      });
+    });
+
+    return () => {
+      unsubPos();
+      realtimeBus.leaveJobTrackingChannel(jobId);
+    };
+  }, [state.activeJobId, state.rescueStage, state.responderClaimed]);
 
   const isLight = state.displayMode === 'sunlight';
 

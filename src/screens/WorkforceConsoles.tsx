@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Camera,
   Check,
@@ -9,7 +9,11 @@ import {
   X,
 } from 'lucide-react';
 import { ScreenTopBar } from '../components/AppShell';
-import { RESCUE_HANDSHAKE_PIN } from '../constants/sabahData';
+import {
+  KOLOMBONG_HQ_LAT,
+  KOLOMBONG_HQ_LNG,
+  RESCUE_HANDSHAKE_PIN,
+} from '../constants/sabahData';
 import { useApp } from '../context/AppContext';
 import {
   LhdnEInvoiceGenerator,
@@ -216,13 +220,54 @@ export const MechanicConsoleScreen: React.FC = () => {
   const [newItemPrice, setNewItemPrice] = useState('165');
   const [newItemCat, setNewItemCat] = useState<'LABOR' | 'PARTS'>('PARTS');
 
+  const telemetryRef = useRef({
+    progress: state.responderProgress,
+    activeJobId: state.activeJobId,
+    responderName: state.responderName,
+    pinLat: state.pinnedLocation.lat,
+    pinLng: state.pinnedLocation.lng,
+  });
+  telemetryRef.current = {
+    progress: state.responderProgress,
+    activeJobId: state.activeJobId,
+    responderName: state.responderName,
+    pinLat: state.pinnedLocation.lat,
+    pinLng: state.pinnedLocation.lng,
+  };
+
   useEffect(() => {
-    if (!state.responderOnline) return;
+    if (!state.responderClaimed || !state.responderOnline) return;
     const t = setInterval(() => {
-      // Heartbeat telemetry ping
+      const cur = telemetryRef.current;
+      const nextProgress = Math.min(0.98, Number((cur.progress + 0.035).toFixed(4)));
+      const nextLat = Number(
+        (
+          KOLOMBONG_HQ_LAT +
+          (cur.pinLat - KOLOMBONG_HQ_LAT) * nextProgress
+        ).toFixed(5)
+      );
+      const nextLng = Number(
+        (
+          KOLOMBONG_HQ_LNG +
+          (cur.pinLng - KOLOMBONG_HQ_LNG) * nextProgress
+        ).toFixed(5)
+      );
+      realtimeBus.publishPosUpdate(cur.activeJobId, {
+        jobId: cur.activeJobId,
+        lat: nextLat,
+        lng: nextLng,
+        progress: nextProgress,
+        responderId: 'kk-204-roy',
+        responderName: cur.responderName,
+        timestamp: Date.now(),
+      });
+      dispatch({
+        type: 'SET_RESPONDER_POS',
+        payload: { progress: nextProgress, lat: nextLat, lng: nextLng },
+      });
     }, 2000);
     return () => clearInterval(t);
-  }, [state.responderOnline]);
+  }, [state.responderClaimed, state.responderOnline, dispatch]);
 
   const addQuoteLine = (e: React.FormEvent) => {
     e.preventDefault();

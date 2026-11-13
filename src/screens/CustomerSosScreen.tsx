@@ -76,7 +76,6 @@ const SosRadialButton: React.FC<{
   return (
     <div className="flex flex-col items-center justify-center my-auto py-2">
       <Sos3DButton
-        mode="hold"
         size="lg"
         topLabel={t.holdFor}
         centerLabel="((SOS))"
@@ -158,6 +157,9 @@ export const CustomerSosScreen: React.FC = () => {
   const [enteredPin, setEnteredPin] = useState('');
   const [isLocating, setIsLocating] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(false);
+  const [setupStep, setSetupStep] = useState<'location' | 'service' | 'confirm'>(
+    'location'
+  );
   const geoRequestIdRef = useRef(0);
   const geoAbortRef = useRef<AbortController | null>(null);
   const autoGpsAttemptedRef = useRef(false);
@@ -255,7 +257,9 @@ export const CustomerSosScreen: React.FC = () => {
       return;
     }
     if (state.rescueStage === 1) {
+      setSetupStep('location');
       setSheetCollapsed(false);
+      setShowSuggestions(false);
       setFlyTrigger((c) => c + 1);
       setAddressQuery(state.pinnedLocation.address);
       if (!autoGpsAttemptedRef.current) {
@@ -430,11 +434,13 @@ export const CustomerSosScreen: React.FC = () => {
   );
 
   const responderLat =
+    state.responderLocation?.lat ??
     KOLOMBONG_HQ_LAT +
-    (state.pinnedLocation.lat - KOLOMBONG_HQ_LAT) * state.responderProgress;
+      (state.pinnedLocation.lat - KOLOMBONG_HQ_LAT) * state.responderProgress;
   const responderLng =
+    state.responderLocation?.lng ??
     KOLOMBONG_HQ_LNG +
-    (state.pinnedLocation.lng - KOLOMBONG_HQ_LNG) * state.responderProgress;
+      (state.pinnedLocation.lng - KOLOMBONG_HQ_LNG) * state.responderProgress;
   const distanceMeters = haversineDistanceMeters(
     responderLat,
     responderLng,
@@ -573,6 +579,47 @@ export const CustomerSosScreen: React.FC = () => {
           </div>
         </header>
 
+        {state.resumableStage !== null &&
+          state.resumableStage >= 1 &&
+          state.resumableStage <= 9 && (
+            <div
+              className={`mt-2 mb-1 px-3 py-2 rounded-full border flex items-center justify-between gap-2 shadow-sm ${
+                isLight
+                  ? 'bg-amber-50 border-amber-300 text-amber-900'
+                  : 'bg-amber-950/50 border-amber-500/40 text-amber-200'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  dispatch({ type: 'RESUME_SAVED_RESCUE' });
+                  notify(
+                    `Resumed active rescue at Stage ${state.resumableStage}/10`,
+                    'info'
+                  );
+                }}
+                className="flex-1 flex items-center gap-2 text-left text-xs font-bold min-w-0"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                <span className="truncate">
+                  Resume Active Rescue (Stage {state.resumableStage}/10)
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+              </button>
+              <button
+                type="button"
+                aria-label="Dismiss active rescue"
+                onClick={() => {
+                  dispatch({ type: 'DISMISS_RESUMABLE_RESCUE' });
+                  notify('Cleared previous rescue session', 'info');
+                }}
+                className="p-1 rounded-full hover:bg-black/20 text-amber-400 shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
         <SosRadialButton
           isLight={isLight}
           lang={state.language}
@@ -644,6 +691,12 @@ export const CustomerSosScreen: React.FC = () => {
         lm.district.toLowerCase().includes(addressQuery.toLowerCase())
     );
 
+    const sheetBottomPadding = sheetCollapsed
+      ? 120
+      : setupStep === 'location'
+      ? 235
+      : 270;
+
     return (
       <div className="flex-1 relative overflow-hidden">
         <div className="absolute inset-0">
@@ -660,7 +713,11 @@ export const CustomerSosScreen: React.FC = () => {
               responderLat={responderLat}
               responderLng={responderLng}
               flyToTrigger={flyTrigger}
-              bottomPadding={sheetCollapsed ? 160 : 340}
+              bottomPadding={sheetBottomPadding}
+              onPanStart={() => {
+                setShowSuggestions(false);
+                setSheetCollapsed(true);
+              }}
               onPanUpdate={handleMapPanUpdate}
               onZoomChange={setMapZoom}
               isLight={isLight}
@@ -685,12 +742,19 @@ export const CustomerSosScreen: React.FC = () => {
         </div>
 
         <button
-          onClick={() => void handleGpsLocate()}
+          onClick={() => {
+            setSheetCollapsed(false);
+            void handleGpsLocate();
+          }}
           disabled={isLocating}
           aria-label="Recenter GPS"
           aria-busy={isLocating}
           className={`absolute right-3 w-11 h-11 rounded-full bg-[#141923]/95 border border-[#282C37] text-red-400 shadow-xl flex items-center justify-center z-20 disabled:opacity-75 transition-all duration-300 ${
-            sheetCollapsed ? 'bottom-[190px]' : 'bottom-[410px]'
+            sheetCollapsed
+              ? 'bottom-[155px]'
+              : setupStep === 'location'
+              ? 'bottom-[310px]'
+              : 'bottom-[345px]'
           }`}
         >
           {isLocating ? (
@@ -702,16 +766,16 @@ export const CustomerSosScreen: React.FC = () => {
 
         <motion.div
           drag="y"
-          dragConstraints={{ top: 0, bottom: 230 }}
+          dragConstraints={{ top: 0, bottom: 200 }}
           dragElastic={0.12}
           onDragEnd={(_e, info) => {
-            if (info.offset.y > 60 || info.velocity.y > 300) {
+            if (info.offset.y > 55 || info.velocity.y > 280) {
               setSheetCollapsed(true);
-            } else if (info.offset.y < -40 || info.velocity.y < -300) {
+            } else if (info.offset.y < -35 || info.velocity.y < -280) {
               setSheetCollapsed(false);
             }
           }}
-          animate={{ y: sheetCollapsed ? 225 : 0 }}
+          animate={{ y: sheetCollapsed ? 185 : 0 }}
           transition={{ type: 'spring', stiffness: 320, damping: 32 }}
           className={`absolute left-0 right-0 bottom-[66px] rounded-t-3xl border-t p-4 shadow-[0_-12px_40px_rgba(0,0,0,0.65)] z-20 ${
             isLight
@@ -733,234 +797,363 @@ export const CustomerSosScreen: React.FC = () => {
           </button>
 
           <div className="flex items-center justify-between gap-2 mb-3">
-            <h2 className="text-xs font-black tracking-[0.15em] text-red-400 uppercase">
-              {t.confirmLocation}
-            </h2>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-black tracking-[0.12em] text-red-400 uppercase">
+                {setupStep === 'location'
+                  ? '1. Set Location'
+                  : setupStep === 'service'
+                  ? '2. Choose Service'
+                  : '3. Confirm Dispatch'}
+              </h2>
               {state.pinnedLocation.source === 'gps' &&
                 state.pinnedLocation.accuracyMeters !== undefined && (
                   <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/35 text-blue-400 text-[10px] font-mono font-bold">
                     GPS ±{state.pinnedLocation.accuracyMeters}m
                   </span>
                 )}
-              <span className="text-[11px] font-mono text-gray-400">
-                ETA ~{state.selectedService.etaMin} mins
-              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {(['location', 'service', 'confirm'] as const).map((stepKey) => (
+                <span
+                  key={stepKey}
+                  className={`h-1.5 rounded-full transition-all ${
+                    setupStep === stepKey
+                      ? 'w-5 bg-red-500'
+                      : 'w-2 bg-gray-600/60'
+                  }`}
+                />
+              ))}
             </div>
           </div>
 
-          <div className="relative mb-3">
-            <label
-              className={`block text-[10px] font-bold uppercase tracking-wider mb-1 ${
-                isLight ? 'text-slate-500' : 'text-gray-400'
-              }`}
-            >
-              {t.addressLabel}
-            </label>
-            <div
-              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border ${
-                isLight
-                  ? 'bg-slate-50 border-slate-300'
-                  : 'bg-[#181C24] border-[#282C37]'
-              }`}
-            >
-              <MapPin className="w-4 h-4 text-red-500 shrink-0" />
-              <input
-                type="text"
-                value={addressQuery}
-                onFocus={() => {
-                  setSheetCollapsed(false);
-                  setShowSuggestions(true);
-                }}
-                onChange={(e) => {
-                  ++geoRequestIdRef.current;
-                  geoAbortRef.current?.abort();
-                  setIsLocating(false);
-                  setAddressQuery(e.target.value);
-                  setShowSuggestions(true);
-                }}
-                placeholder="Search Sabah landmark or drag map..."
-                className="flex-1 bg-transparent text-xs font-semibold outline-none truncate min-w-0"
-              />
-              {addressQuery && (
-                <button
-                  onClick={() => {
-                    ++geoRequestIdRef.current;
-                    geoAbortRef.current?.abort();
-                    setIsLocating(false);
-                    setAddressQuery('');
-                    setShowSuggestions(true);
-                  }}
-                  aria-label="Clear address"
-                  className="p-1 text-gray-400 hover:text-white shrink-0"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-              <button
-                onClick={() => void handleGpsLocate()}
-                disabled={isLocating}
-                aria-label="Use current GPS location"
-                aria-busy={isLocating}
-                className="px-2 py-1 rounded-lg bg-blue-600/20 text-blue-400 text-[10px] font-bold shrink-0 flex items-center gap-1 disabled:opacity-70"
-              >
-                {isLocating ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Crosshair className="w-3 h-3" />
-                )}
-                GPS
-              </button>
-              <button
-                onClick={() => {
-                  setSheetCollapsed(false);
-                  setShowSuggestions((s) => !s);
-                }}
-                className="px-2 py-1 rounded-lg bg-red-600/20 text-red-400 text-[10px] font-bold shrink-0"
-              >
-                Landmarks
-              </button>
-            </div>
-
-            {showSuggestions && (
-              <div
-                className={`absolute left-0 right-0 bottom-full mb-1.5 max-h-48 overflow-y-auto rounded-2xl border shadow-2xl z-40 ${
-                  isLight
-                    ? 'bg-white border-slate-200'
-                    : 'bg-[#181C24] border-[#282C37]'
-                }`}
-              >
-                <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800/60">
-                  <span className="text-[10px] font-bold uppercase text-gray-400">
-                    Sabah Quick Landmarks & OSM Search
-                  </span>
-                  <button
-                    onClick={() => setShowSuggestions(false)}
-                    className="text-xs text-gray-400"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                {nominatimResults.map((nr, i) => (
-                  <button
-                    key={`osm-${i}`}
-                    onClick={() => {
-                      ++geoRequestIdRef.current;
-                      geoAbortRef.current?.abort();
-                      setIsLocating(false);
-                      const coords = latLngToMapCoords(nr.lat, nr.lng);
-                      const formatted = `Pinned: ${nr.lat.toFixed(
-                        4
-                      )}, ${nr.lng.toFixed(4)} (${nr.label})`;
-                      setAddressQuery(formatted);
-                      setShowSuggestions(false);
-                      setFlyTrigger((c) => c + 1);
-                      dispatch({
-                        type: 'UPDATE_PIN_LOCATION',
-                        payload: {
-                          lat: nr.lat,
-                          lng: nr.lng,
-                          address: formatted,
-                          mapX: coords.mapX,
-                          mapY: coords.mapY,
-                          source: 'search',
-                        },
-                      });
-                    }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-600/15 flex items-center justify-between border-b border-gray-800/40"
-                  >
-                    <span className="font-semibold truncate">{nr.label}</span>
-                    <span className="text-[10px] font-mono text-emerald-400 ml-2 shrink-0">
-                      OSM
-                    </span>
-                  </button>
-                ))}
-                {(filteredLandmarks.length > 0
-                  ? filteredLandmarks
-                  : SABAH_LANDMARKS
-                ).map((lm) => (
-                  <button
-                    key={lm.id}
-                    onClick={() => selectLandmark(lm)}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-600/15 flex items-center justify-between border-b border-gray-800/40"
-                  >
-                    <div>
-                      <div className="font-bold">{lm.name}</div>
-                      <div className="text-[10px] text-gray-400">
-                        {lm.district}
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-mono text-gray-400">
-                      {lm.lat.toFixed(3)}, {lm.lng.toFixed(3)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5 mb-3">
-            {SERVICES.map((svc) => {
-              const selected = state.selectedService.id === svc.id;
-              return (
-                <button
-                  key={svc.id}
-                  onClick={() =>
-                    dispatch({ type: 'SELECT_SERVICE', payload: svc })
-                  }
-                  className={`px-3.5 py-2.5 rounded-xl border text-left transition-all ${
-                    selected
-                      ? 'bg-red-600/20 border-red-500 shadow-[0_0_16px_rgba(220,38,38,0.3)]'
-                      : isLight
-                      ? 'bg-slate-50 border-slate-200'
+          {setupStep === 'location' && (
+            <div className="space-y-3">
+              <div className="relative">
+                <div
+                  className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border ${
+                    isLight
+                      ? 'bg-slate-50 border-slate-300'
                       : 'bg-[#181C24] border-[#282C37]'
                   }`}
                 >
-                  <div className="text-xs font-bold whitespace-nowrap">
-                    {state.language === 'BM' ? svc.nameBm : svc.nameEn}
-                  </div>
+                  <MapPin className="w-4 h-4 text-red-500 shrink-0" />
+                  <input
+                    type="text"
+                    value={addressQuery}
+                    onFocus={() => {
+                      setSheetCollapsed(false);
+                      setShowSuggestions(true);
+                    }}
+                    onChange={(e) => {
+                      ++geoRequestIdRef.current;
+                      geoAbortRef.current?.abort();
+                      setIsLocating(false);
+                      setAddressQuery(e.target.value);
+                      setShowSuggestions(true);
+                    }}
+                    placeholder="Search Sabah landmark or drag map..."
+                    className="flex-1 bg-transparent text-xs font-semibold outline-none truncate min-w-0"
+                  />
+                  {addressQuery && (
+                    <button
+                      onClick={() => {
+                        ++geoRequestIdRef.current;
+                        geoAbortRef.current?.abort();
+                        setIsLocating(false);
+                        setAddressQuery('');
+                        setShowSuggestions(true);
+                      }}
+                      aria-label="Clear address"
+                      className="p-1 text-gray-400 hover:text-white shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => void handleGpsLocate()}
+                    disabled={isLocating}
+                    aria-label="Use current GPS location"
+                    aria-busy={isLocating}
+                    className="px-2 py-1 rounded-lg bg-blue-600/20 text-blue-400 text-[10px] font-bold shrink-0 flex items-center gap-1 disabled:opacity-70"
+                  >
+                    {isLocating ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Crosshair className="w-3 h-3" />
+                    )}
+                    GPS
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSheetCollapsed(false);
+                      setShowSuggestions((s) => !s);
+                    }}
+                    className="px-2 py-1 rounded-lg bg-red-600/20 text-red-400 text-[10px] font-bold shrink-0"
+                  >
+                    Landmarks
+                  </button>
+                </div>
+
+                {showSuggestions && (
                   <div
-                    className={`text-xs font-black font-mono mt-0.5 ${
-                      selected ? 'text-red-400' : 'text-gray-400'
+                    className={`absolute left-0 right-0 bottom-full mb-1.5 max-h-48 overflow-y-auto rounded-2xl border shadow-2xl z-40 ${
+                      isLight
+                        ? 'bg-white border-slate-200'
+                        : 'bg-[#181C24] border-[#282C37]'
                     }`}
                   >
-                    RM {svc.price}
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800/60">
+                      <span className="text-[10px] font-bold uppercase text-gray-400">
+                        Sabah Quick Landmarks & OSM Search
+                      </span>
+                      <button
+                        onClick={() => setShowSuggestions(false)}
+                        className="text-xs text-gray-400"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    {nominatimResults.map((nr, i) => (
+                      <button
+                        key={`osm-${i}`}
+                        onClick={() => {
+                          ++geoRequestIdRef.current;
+                          geoAbortRef.current?.abort();
+                          setIsLocating(false);
+                          const coords = latLngToMapCoords(nr.lat, nr.lng);
+                          const formatted = `Pinned: ${nr.lat.toFixed(
+                            4
+                          )}, ${nr.lng.toFixed(4)} (${nr.label})`;
+                          setAddressQuery(formatted);
+                          setShowSuggestions(false);
+                          setFlyTrigger((c) => c + 1);
+                          dispatch({
+                            type: 'UPDATE_PIN_LOCATION',
+                            payload: {
+                              lat: nr.lat,
+                              lng: nr.lng,
+                              address: formatted,
+                              mapX: coords.mapX,
+                              mapY: coords.mapY,
+                              source: 'search',
+                            },
+                          });
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-red-600/15 flex items-center justify-between border-b border-gray-800/40"
+                      >
+                        <span className="font-semibold truncate">
+                          {nr.label}
+                        </span>
+                        <span className="text-[10px] font-mono text-emerald-400 ml-2 shrink-0">
+                          OSM
+                        </span>
+                      </button>
+                    ))}
+                    {(filteredLandmarks.length > 0
+                      ? filteredLandmarks
+                      : SABAH_LANDMARKS
+                    ).map((lm) => (
+                      <button
+                        key={lm.id}
+                        onClick={() => selectLandmark(lm)}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-red-600/15 flex items-center justify-between border-b border-gray-800/40"
+                      >
+                        <div>
+                          <div className="font-bold">{lm.name}</div>
+                          <div className="text-[10px] text-gray-400">
+                            {lm.district}
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono text-gray-400">
+                          {lm.lat.toFixed(3)}, {lm.lng.toFixed(3)}
+                        </span>
+                      </button>
+                    ))}
                   </div>
-                </button>
-              );
-            })}
-          </div>
+                )}
+              </div>
 
-          <Sos3DButton
-            mode="tap"
-            size="md"
-            topLabel="CONFIRM"
-            centerLabel="((SOS))"
-            bottomLabel={`RM ${state.selectedService.price}`}
-            label={`${t.confirmProceed} (RM ${state.selectedService.price}.00)`}
-            onClick={async () => {
-              dispatch({ type: 'SET_RESCUE_STAGE', payload: 2 });
-              await syncJobToSupabase({
-                id: state.activeJobId,
-                user_id: 'ahmad_sbh_8821',
-                service_type: normalizeServiceType(state.selectedService.id),
-                status: 'pending',
-                latitude: state.pinnedLocation.lat,
-                longitude: state.pinnedLocation.lng,
-                address: state.pinnedLocation.address,
-                notes: `Stage 2 SOS: ${state.selectedService.nameEn}`,
-                vehicle_plate: activeVehicle.plate,
-                vehicle_model: activeVehicle.makeModel,
-                quoted_price: state.selectedService.price,
-              });
-              notify(
-                `SOS Broadcasted (${formatTicketCode(
-                  state.activeJobId
-                )}) via Supabase Realtime`,
-                'success'
-              );
-            }}
-          />
+              <button
+                type="button"
+                onClick={() => {
+                  const trimmed = addressQuery.trim();
+                  if (trimmed && trimmed !== state.pinnedLocation.address) {
+                    dispatch({
+                      type: 'UPDATE_PIN_LOCATION',
+                      payload: {
+                        ...state.pinnedLocation,
+                        address: trimmed,
+                      },
+                    });
+                  }
+                  setShowSuggestions(false);
+                  setSheetCollapsed(false);
+                  setSetupStep('service');
+                }}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+              >
+                <MapPin className="w-4 h-4" />
+                <span>Set Location</span>
+              </button>
+            </div>
+          )}
+
+          {setupStep === 'service' && (
+            <div className="space-y-3">
+              <div
+                className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl border ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-[#181C24] border-[#282C37]'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                  <span className="text-xs font-semibold truncate">
+                    {state.pinnedLocation.address}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSetupStep('location')}
+                  className="text-xs font-bold text-red-400 hover:underline shrink-0"
+                >
+                  Edit
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                {SERVICES.map((svc) => {
+                  const selected = state.selectedService.id === svc.id;
+                  return (
+                    <button
+                      key={svc.id}
+                      type="button"
+                      onClick={() => {
+                        dispatch({ type: 'SELECT_SERVICE', payload: svc });
+                        setSetupStep('confirm');
+                      }}
+                      className={`px-3.5 py-3 rounded-xl border text-left transition-all ${
+                        selected
+                          ? 'bg-red-600/20 border-red-500 shadow-[0_0_16px_rgba(220,38,38,0.3)]'
+                          : isLight
+                          ? 'bg-slate-50 border-slate-200'
+                          : 'bg-[#181C24] border-[#282C37]'
+                      }`}
+                    >
+                      <div className="text-xs font-bold whitespace-nowrap">
+                        {state.language === 'BM' ? svc.nameBm : svc.nameEn}
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span
+                          className={`text-xs font-black font-mono ${
+                            selected ? 'text-red-400' : 'text-gray-400'
+                          }`}
+                        >
+                          RM {svc.price}
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-400">
+                          ~{svc.etaMin}m
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {setupStep === 'confirm' && (
+            <div className="space-y-3">
+              <div
+                className={`rounded-xl border divide-y ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200 divide-slate-200'
+                    : 'bg-[#181C24] border-[#282C37] divide-[#282C37]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold uppercase text-gray-400">
+                        Breakdown Location
+                      </div>
+                      <div className="text-xs font-semibold truncate">
+                        {state.pinnedLocation.address}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSetupStep('location')}
+                    className="text-xs font-bold text-red-400 hover:underline shrink-0"
+                  >
+                    Change
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase text-gray-400">
+                      Selected Rescue Service
+                    </div>
+                    <div className="text-xs font-bold">
+                      {state.language === 'BM'
+                        ? state.selectedService.nameBm
+                        : state.selectedService.nameEn}{' '}
+                      •{' '}
+                      <span className="font-mono text-red-400">
+                        RM {state.selectedService.price}.00
+                      </span>{' '}
+                      <span className="text-[11px] font-normal text-gray-400">
+                        (~{state.selectedService.etaMin} mins)
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSetupStep('service')}
+                    className="text-xs font-bold text-red-400 hover:underline shrink-0"
+                  >
+                    Change
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  dispatch({ type: 'SET_RESCUE_STAGE', payload: 2 });
+                  await syncJobToSupabase({
+                    id: state.activeJobId,
+                    user_id: 'ahmad_sbh_8821',
+                    service_type: normalizeServiceType(state.selectedService.id),
+                    status: 'pending',
+                    latitude: state.pinnedLocation.lat,
+                    longitude: state.pinnedLocation.lng,
+                    address: state.pinnedLocation.address,
+                    notes: `Stage 2 SOS: ${state.selectedService.nameEn}`,
+                    vehicle_plate: activeVehicle.plate,
+                    vehicle_model: activeVehicle.makeModel,
+                    quoted_price: state.selectedService.price,
+                  });
+                  notify(
+                    `SOS Broadcasted (${formatTicketCode(
+                      state.activeJobId
+                    )}) via Supabase Realtime`,
+                    'success'
+                  );
+                }}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+              >
+                <span>
+                  {t.confirmProceed} (RM {state.selectedService.price}.00)
+                </span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </motion.div>
       </div>
     );

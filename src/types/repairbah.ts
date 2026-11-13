@@ -153,6 +153,7 @@ export interface AppState {
 
   // Rescue 10-Stage FSM
   rescueStage: RescueStage;
+  resumableStage: RescueStage | null;
   activeJobId: string;
   selectedService: ServiceOption;
   pinnedLocation: PinnedLocation;
@@ -161,6 +162,7 @@ export interface AppState {
   responderName: string;
   responderUnit: string;
   responderProgress: number; // 0..1 interpolated position
+  responderLocation: { lat: number; lng: number } | null;
   slaSecondsRemaining: number;
   dispatchWarning: 'NONE' | 'STALLED_RESPONDER' | 'AUTO_REASSIGNED';
   arrivalPinVerified: boolean;
@@ -203,6 +205,8 @@ export type AppAction =
   | { type: 'TOGGLE_LANGUAGE' }
   | { type: 'TOGGLE_HAZARD' }
   | { type: 'SET_RESCUE_STAGE'; payload: RescueStage }
+  | { type: 'RESUME_SAVED_RESCUE' }
+  | { type: 'DISMISS_RESUMABLE_RESCUE' }
   | { type: 'SELECT_SERVICE'; payload: ServiceOption }
   | {
       type: 'UPDATE_PIN_LOCATION';
@@ -211,6 +215,10 @@ export type AppAction =
   | { type: 'CLAIM_RESCUE_JOB'; payload?: { responderName?: string } }
   | { type: 'TOGGLE_RESPONDER_ONLINE' }
   | { type: 'SET_RESPONDER_PROGRESS'; payload: number }
+  | {
+      type: 'SET_RESPONDER_POS';
+      payload: { progress: number; lat: number; lng: number };
+    }
   | { type: 'TICK_SLA' }
   | {
       type: 'SET_DISPATCH_WARNING';

@@ -68,6 +68,7 @@ export interface AppMapViewProps {
   responderProgress?: number;
   flyToTrigger?: number;
   bottomPadding?: number;
+  onPanStart?: () => void;
   onPanUpdate?: (
     newX: number,
     newY: number,
@@ -94,6 +95,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   responderProgress = 0.1,
   flyToTrigger = 0,
   bottomPadding = 0,
+  onPanStart,
   onPanUpdate,
   onZoomChange,
   isLight,
@@ -104,6 +106,8 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   const responderMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const hqMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const programmaticMoveRef = useRef(false);
+  const onPanStartRef = useRef(onPanStart);
+  onPanStartRef.current = onPanStart;
   const onPanUpdateRef = useRef(onPanUpdate);
   onPanUpdateRef.current = onPanUpdate;
 
@@ -276,6 +280,11 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
       map.on('error', () => {
         if (isUnmounted) return;
         setMapboxFallback(true);
+      });
+
+      map.on('dragstart', () => {
+        if (isUnmounted || !interactive) return;
+        onPanStartRef.current?.();
       });
 
       map.on('moveend', () => {
@@ -511,6 +520,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     if (!mapboxFallback || !interactive) return;
     draggingRef.current = true;
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
+    onPanStartRef.current?.();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const handleFallbackPointerMove = (e: React.PointerEvent) => {

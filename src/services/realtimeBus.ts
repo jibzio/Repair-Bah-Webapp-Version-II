@@ -1,9 +1,20 @@
 import { EmergencyRequestDto } from '../types/repairbah';
 
+export interface PosUpdatePayload {
+  jobId: string;
+  lat: number;
+  lng: number;
+  progress: number;
+  responderId?: string;
+  responderName?: string;
+  timestamp?: number;
+}
+
 type ConnectionListener = (connected: boolean) => void;
 type CdcListener = (record: Record<string, unknown>) => void;
 type JobPatchListener = (payload: Record<string, unknown>) => void;
 type TowCamSignalListener = (payload: Record<string, unknown>) => void;
+type PosUpdateListener = (payload: PosUpdatePayload) => void;
 
 /**
  * Unified Realtime Bus Singleton
@@ -22,11 +33,13 @@ class RealtimeBus {
   private refCount = 0;
   private msgRef = 10;
   private activeTowCamTopic: string | null = null;
+  private activeJobTrackingTopic: string | null = null;
 
   private connectionListeners = new Set<ConnectionListener>();
   private cdcListeners = new Set<CdcListener>();
   private jobPatchListeners = new Set<JobPatchListener>();
   private towCamListeners = new Set<TowCamSignalListener>();
+  private posUpdateListeners = new Set<PosUpdateListener>();
 
   private ensureBroadcastChannel() {
     if (this.bc || typeof BroadcastChannel === 'undefined') return;
@@ -40,6 +53,15 @@ class RealtimeBus {
           this.jobPatchListeners.forEach((cb) => cb(payload));
         } else if (data.type === 'WEBRTC_SIGNAL') {
           this.towCamListeners.forEach((cb) => cb(data));
+        } else if (
+          data.type === 'POS_UPDATE' &&
+          data.payload &&
+          typeof data.payload === 'object'
+        ) {
+          const pos = data.payload as PosUpdatePayload;
+          if (typeof pos.lat === 'number' && typeof pos.lng === 'number') {
+            this.posUpdateListeners.forEach((cb) => cb(pos));
+          }
         }
       };
     } catch {
@@ -94,6 +116,15 @@ class RealtimeBus {
     if (this.activeTowCamTopic) {
       this.sendWsFrame({
         topic: this.activeTowCamTopic,
+        event: 'phx_join',
+        payload: { config: { broadcast: { self: false } } },
+        ref: String(++this.msgRef),
+      });
+    }
+
+    if (this.activeJobTrackingTopic) {
+      this.sendWsFrame({
+        topic: this.activeJobTrackingTopic,
         event: 'phx_join',
         payload: { config: { broadcast: { self: false } } },
         ref: String(++this.msgRef),
@@ -162,6 +193,49 @@ class RealtimeBus {
           ) {
             const payload = frame.payload as Record<string, unknown>;
             this.towCamListeners.forEach((cb) => cb(payload));
+          } else if (
+            frame.topic?.startsWith('realtime:job_tracking:') &&
+            (frame.event === 'broadcast' || frame.event === 'POS_UPDATE') &&
+            frame.payload &&
+            typeof frame.payload === 'object'
+          ) {
+            const envelope = frame.payload as Record<string, unknown>;
+            const inner =
+              envelope.event === 'POS_UPDATE' &&
+              envelope.payload &&
+              typeof envelope.payload === 'object'
+                ? (envelope.payload as Record<string, unknown>)
+                : envelope;
+            if (
+              typeof inner.lat === 'number' &&
+              typeof inner.lng === 'number' &&
+              typeof inner.progress === 'number'
+            ) {
+              const topicJobId = frame.topic.replace(
+                'realtime:job_tracking:',
+                ''
+              );
+              const posPayload: PosUpdatePayload = {
+                jobId:
+                  typeof inner.jobId === 'string' ? inner.jobId : topicJobId,
+                lat: inner.lat,
+                lng: inner.lng,
+                progress: inner.progress,
+                responderId:
+                  typeof inner.responderId === 'string'
+                    ? inner.responderId
+                    : undefined,
+                responderName:
+                  typeof inner.responderName === 'string'
+                    ? inner.responderName
+                    : undefined,
+                timestamp:
+                  typeof inner.timestamp === 'number'
+                    ? inner.timestamp
+                    : Date.now(),
+              };
+              this.posUpdateListeners.forEach((cb) => cb(posPayload));
+            }
           }
         } catch {
           // Ignore malformed heartbeat or system frames
@@ -297,6 +371,69 @@ class RealtimeBus {
     });
   }
 
+  public joinJobTrackingChannel(jobId: string) {
+    if (!jobId) return;
+    const topic = `realtime:job_tracking:${jobId}`;
+    if (this.activeJobTrackingTopic === topic) return;
+    if (this.activeJobTrackingTopic) {
+      this.sendWsFrame({
+        topic: this.activeJobTrackingTopic,
+        event: 'phx_leave',
+        payload: {},
+        ref: String(++this.msgRef),
+      });
+    }
+    this.activeJobTrackingTopic = topic;
+    this.ensureBroadcastChannel();
+    this.sendWsFrame({
+      topic,
+      event: 'phx_join',
+      payload: { config: { broadcast: { self: false } } },
+      ref: String(++this.msgRef),
+    });
+  }
+
+  public leaveJobTrackingChannel(jobId: string) {
+    const topic = `realtime:job_tracking:${jobId}`;
+    if (this.activeJobTrackingTopic === topic) {
+      this.sendWsFrame({
+        topic,
+        event: 'phx_leave',
+        payload: {},
+        ref: String(++this.msgRef),
+      });
+      this.activeJobTrackingTopic = null;
+    }
+  }
+
+  public publishPosUpdate(
+    jobId: string,
+    payload: Omit<PosUpdatePayload, 'jobId'> & { jobId?: string }
+  ) {
+    const fullPayload: PosUpdatePayload = {
+      ...payload,
+      jobId: payload.jobId || jobId,
+      timestamp: payload.timestamp ?? Date.now(),
+    };
+    this.ensureBroadcastChannel();
+    try {
+      this.bc?.postMessage({ type: 'POS_UPDATE', payload: fullPayload });
+    } catch {
+      // Ignore BroadcastChannel errors
+    }
+
+    this.sendWsFrame({
+      topic: `realtime:job_tracking:${jobId}`,
+      event: 'broadcast',
+      payload: {
+        type: 'broadcast',
+        event: 'POS_UPDATE',
+        payload: fullPayload,
+      },
+      ref: String(++this.msgRef),
+    });
+  }
+
   public publishJobPatch(payload: EmergencyRequestDto | Record<string, unknown>) {
     this.ensureBroadcastChannel();
     try {
@@ -324,6 +461,11 @@ class RealtimeBus {
   public onTowCamSignal(cb: TowCamSignalListener): () => void {
     this.towCamListeners.add(cb);
     return () => this.towCamListeners.delete(cb);
+  }
+
+  public onPosUpdate(cb: PosUpdateListener): () => void {
+    this.posUpdateListeners.add(cb);
+    return () => this.posUpdateListeners.delete(cb);
   }
 }
 
