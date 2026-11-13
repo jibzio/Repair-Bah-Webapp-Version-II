@@ -8,6 +8,8 @@ import React, {
   createContext,
   useContext,
 } from 'react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import {
   Menu,
   X,
@@ -1675,13 +1677,27 @@ const SnackbarHost: React.FC = () => {
 };
 
 // ============================================================================
-// 5. INTERACTIVE SABAH VECTOR MAP & 60FPS MARKER INTERPOLATOR
+// 5. MAPBOX GL JS SABAH MAP & 60FPS MARKER INTERPOLATOR
 // ============================================================================
+
+const MAPBOX_DEMO_TOKEN =
+  'pk.eyJ1IjoicmVwYWlyYmFoLXNhYmFoIiwiYSI6ImNtM3JlcGFpcmJhaGRlbW90b2tlbiJ9.demo_sabah_kk';
+
+function mapCoordsToLatLng(mapX: number, mapY: number) {
+  const lat = Number((6.09 - (mapY / 1000) * 0.22).toFixed(4));
+  const lng = Number((116.01 + (mapX / 1000) * 0.16).toFixed(4));
+  return { lat, lng };
+}
 
 interface AppMapViewProps {
   centerX: number;
   centerY: number;
   zoom: number;
+  stage?: RescueStage;
+  pinLat?: number;
+  pinLng?: number;
+  responderLat?: number;
+  responderLng?: number;
   interactive?: boolean;
   showResponder?: boolean;
   responderProgress?: number;
@@ -1695,6 +1711,11 @@ const AppMapView: React.FC<AppMapViewProps> = ({
   centerX,
   centerY,
   zoom,
+  stage,
+  pinLat,
+  pinLng,
+  responderLat,
+  responderLng,
   interactive = true,
   showResponder = false,
   responderProgress = 0.1,
@@ -1703,235 +1724,371 @@ const AppMapView: React.FC<AppMapViewProps> = ({
   onZoomChange,
   isLight,
 }) => {
-  const [animatedZoom, setAnimatedZoom] = useState(
-    flyToTrigger > 0 ? 0.85 : zoom
-  );
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const responderMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const hqMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const programmaticMoveRef = useRef(false);
+  const onPanUpdateRef = useRef(onPanUpdate);
+  onPanUpdateRef.current = onPanUpdate;
+
+  const fallbackPinCoords = mapCoordsToLatLng(centerX, centerY);
+  const resolvedPinLat = pinLat ?? fallbackPinCoords.lat;
+  const resolvedPinLng = pinLng ?? fallbackPinCoords.lng;
+  const resolvedRespLat =
+    responderLat ??
+    KOLOMBONG_HQ_LAT + (resolvedPinLat - KOLOMBONG_HQ_LAT) * responderProgress;
+  const resolvedRespLng =
+    responderLng ??
+    KOLOMBONG_HQ_LNG + (resolvedPinLng - KOLOMBONG_HQ_LNG) * responderProgress;
+
+  const targetCoordsRef = useRef({
+    pinLat: resolvedPinLat,
+    pinLng: resolvedPinLng,
+    respLat: resolvedRespLat,
+    respLng: resolvedRespLng,
+    responderVisible: showResponder || (stage !== undefined && stage >= 3),
+  });
+  targetCoordsRef.current = {
+    pinLat: resolvedPinLat,
+    pinLng: resolvedPinLng,
+    respLat: resolvedRespLat,
+    respLng: resolvedRespLng,
+    responderVisible: showResponder || (stage !== undefined && stage >= 3),
+  };
+
+  const interpRespRef = useRef({
+    lat: resolvedRespLat,
+    lng: resolvedRespLng,
+  });
+  const [interpPos, setInterpPos] = useState({
+    lat: resolvedRespLat,
+    lng: resolvedRespLng,
+  });
+  const [styleLoaded, setStyleLoaded] = useState(false);
+  const [mapboxFallback, setMapboxFallback] = useState(false);
+
+  const toMapboxZoom = (z: number) =>
+    Math.max(10.5, Math.min(18, 12.2 + (z - 0.85) * 2.2));
+
+  // Initialize Mapbox GL JS instance
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    const envToken = (
+      import.meta as ImportMeta & { env?: Record<string, string | undefined> }
+    ).env?.VITE_MAPBOX_ACCESS_TOKEN;
+    const accessToken = envToken || MAPBOX_DEMO_TOKEN;
+    mapboxgl.accessToken = accessToken;
+
+    let map: mapboxgl.Map | null = null;
+    try {
+      map = new mapboxgl.Map({
+        container,
+        style: isLight
+          ? 'mapbox://styles/mapbox/navigation-day-v1'
+          : 'mapbox://styles/mapbox/navigation-night-v1',
+        center: [resolvedPinLng, resolvedPinLat],
+        zoom: toMapboxZoom(zoom),
+        interactive,
+        attributionControl: false,
+      });
+      mapRef.current = map;
+
+      // Kolombong HQ Marker
+      const hqEl = document.createElement('div');
+      hqEl.className =
+        'w-4 h-4 rounded-full bg-emerald-500 border-2 border-emerald-950 shadow-lg';
+      hqEl.title = 'Kolombong HQ';
+      hqMarkerRef.current = new mapboxgl.Marker({ element: hqEl })
+        .setLngLat([KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT])
+        .addTo(map);
+
+      // Breakdown Pin Marker (synced with Mapbox center)
+      const pinEl = document.createElement('div');
+      pinEl.className = 'w-3 h-3 rounded-full bg-red-500/80 ring-4 ring-red-500/25';
+      pinMarkerRef.current = new mapboxgl.Marker({ element: pinEl })
+        .setLngLat([resolvedPinLng, resolvedPinLat])
+        .addTo(map);
+
+      // Responder Marker (KK-204 ROY)
+      const respEl = document.createElement('div');
+      respEl.className = 'flex flex-col items-center pointer-events-none';
+      respEl.innerHTML =
+        '<span class="px-1.5 py-0.5 rounded bg-blue-950/90 border border-blue-400/60 text-[10px] font-black text-blue-300 whitespace-nowrap mb-1">KK-204 ROY</span><div class="w-5 h-5 rounded-full bg-blue-600 border-2 border-white shadow-[0_0_16px_rgba(37,99,235,0.85)]"></div>';
+      const respMarker = new mapboxgl.Marker({ element: respEl })
+        .setLngLat([resolvedRespLng, resolvedRespLat]);
+      if (targetCoordsRef.current.responderVisible) {
+        respMarker.addTo(map);
+      }
+      responderMarkerRef.current = respMarker;
+
+      const ensureRouteLayer = () => {
+        if (!map || !map.isStyleLoaded()) return;
+        if (!map.getSource('rescue-route')) {
+          map.addSource('rescue-route', {
+            type: 'geojson',
+            data: {
+              type: 'Feature',
+              properties: {},
+              geometry: {
+                type: 'LineString',
+                coordinates: [
+                  [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                  [resolvedPinLng, resolvedPinLat],
+                ],
+              },
+            },
+          });
+        }
+        if (!map.getLayer('rescue-route-line')) {
+          map.addLayer({
+            id: 'rescue-route-line',
+            type: 'line',
+            source: 'rescue-route',
+            paint: {
+              'line-color': '#EF4444',
+              'line-width': 4,
+              'line-dasharray': [2, 2],
+            },
+          });
+        }
+      };
+
+      map.on('load', () => {
+        setStyleLoaded(true);
+        setMapboxFallback(false);
+        ensureRouteLayer();
+      });
+
+      map.on('style.load', () => {
+        setStyleLoaded(true);
+        ensureRouteLayer();
+      });
+
+      map.on('error', () => {
+        setMapboxFallback(true);
+      });
+
+      map.on('moveend', () => {
+        if (programmaticMoveRef.current) {
+          programmaticMoveRef.current = false;
+          return;
+        }
+        if (!interactive || !map || !onPanUpdateRef.current) return;
+        const c = map.getCenter();
+        const clampedLat = Math.max(5.87, Math.min(6.09, c.lat));
+        const clampedLng = Math.max(116.01, Math.min(116.17, c.lng));
+        const coords = latLngToMapCoords(clampedLat, clampedLng);
+        onPanUpdateRef.current(coords.mapX, coords.mapY);
+      });
+    } catch {
+      setMapboxFallback(true);
+    }
+
+    return () => {
+      pinMarkerRef.current?.remove();
+      responderMarkerRef.current?.remove();
+      hqMarkerRef.current?.remove();
+      map?.remove();
+      mapRef.current = null;
+      pinMarkerRef.current = null;
+      responderMarkerRef.current = null;
+      hqMarkerRef.current = null;
+    };
+  }, [interactive]);
+
+  // Switch Mapbox style cleanly when displayMode (isLight) toggles
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      setStyleLoaded(false);
+      map.setStyle(
+        isLight
+          ? 'mapbox://styles/mapbox/navigation-day-v1'
+          : 'mapbox://styles/mapbox/navigation-night-v1'
+      );
+    } catch {
+      setMapboxFallback(true);
+    }
+  }, [isLight]);
+
+  // Sync Mapbox center/zoom & flyTo on Stage 1 entry or landmark selection
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const targetZoom = toMapboxZoom(zoom);
+    programmaticMoveRef.current = true;
+    try {
+      if (flyToTrigger > 0) {
+        map.flyTo({
+          center: [resolvedPinLng, resolvedPinLat],
+          zoom: targetZoom,
+          duration: 850,
+        });
+      } else {
+        map.easeTo({
+          center: [resolvedPinLng, resolvedPinLat],
+          zoom: targetZoom,
+          duration: 280,
+        });
+      }
+    } catch {
+      programmaticMoveRef.current = false;
+    }
+  }, [resolvedPinLat, resolvedPinLng, zoom, flyToTrigger]);
+
+  // 60fps MarkerInterpolator updating Mapbox markers & route GeoJSON seamlessly
+  useEffect(() => {
+    let frameId = 0;
+    let lastNow = performance.now();
+
+    const step = (now: number) => {
+      const dt = Math.min(0.1, (now - lastNow) / 1000);
+      lastNow = now;
+      const targets = targetCoordsRef.current;
+      const lerpAlpha = Math.min(1, dt * 10);
+
+      interpRespRef.current.lat +=
+        (targets.respLat - interpRespRef.current.lat) * lerpAlpha;
+      interpRespRef.current.lng +=
+        (targets.respLng - interpRespRef.current.lng) * lerpAlpha;
+
+      const curLat = interpRespRef.current.lat;
+      const curLng = interpRespRef.current.lng;
+
+      pinMarkerRef.current?.setLngLat([targets.pinLng, targets.pinLat]);
+
+      const map = mapRef.current;
+      const respMarker = responderMarkerRef.current;
+      if (map && respMarker) {
+        respMarker.setLngLat([curLng, curLat]);
+        const isAttached = Boolean(respMarker.getElement().parentElement);
+        if (targets.responderVisible && !isAttached) {
+          respMarker.addTo(map);
+        } else if (!targets.responderVisible && isAttached) {
+          respMarker.remove();
+        }
+        const routeSrc = map.getSource('rescue-route') as
+          | mapboxgl.GeoJSONSource
+          | undefined;
+        if (routeSrc && styleLoaded) {
+          routeSrc.setData({
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates: targets.responderVisible
+                ? [
+                    [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                    [curLng, curLat],
+                    [targets.pinLng, targets.pinLat],
+                  ]
+                : [
+                    [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                    [targets.pinLng, targets.pinLat],
+                  ],
+            },
+          });
+        }
+      }
+
+      if (mapboxFallback) {
+        setInterpPos({ lat: curLat, lng: curLng });
+      }
+
+      frameId = requestAnimationFrame(step);
+    };
+
+    frameId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frameId);
+  }, [styleLoaded, mapboxFallback]);
+
+  // Fallback drag handler when demo token / sandboxed WebGL prevents Mapbox tiles
   const draggingRef = useRef(false);
   const lastPointerRef = useRef({ x: 0, y: 0 });
-
-  // Smooth flyTo zoom-in animation upon entering Stage 1
-  useEffect(() => {
-    if (flyToTrigger <= 0) {
-      setAnimatedZoom(zoom);
-      return;
-    }
-    let frameId = 0;
-    const startZoom = 0.82;
-    const targetZoom = zoom;
-    const startTime = performance.now();
-    const duration = 850;
-
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - startTime) / duration);
-      const ease = 1 - Math.pow(1 - t, 3);
-      setAnimatedZoom(startZoom + (targetZoom - startZoom) * ease);
-      if (t < 1) frameId = requestAnimationFrame(tick);
-    };
-    frameId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frameId);
-  }, [flyToTrigger, zoom]);
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (!interactive) return;
+  const handleFallbackPointerDown = (e: React.PointerEvent) => {
+    if (!mapboxFallback || !interactive) return;
     draggingRef.current = true;
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!interactive || !draggingRef.current || !onPanUpdate) return;
+  const handleFallbackPointerMove = (e: React.PointerEvent) => {
+    if (!mapboxFallback || !interactive || !draggingRef.current || !onPanUpdate)
+      return;
     const dx = e.clientX - lastPointerRef.current.x;
     const dy = e.clientY - lastPointerRef.current.y;
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
-    const nextX = Math.max(120, Math.min(880, centerX - dx / animatedZoom));
-    const nextY = Math.max(80, Math.min(900, centerY - dy / animatedZoom));
+    const nextX = Math.max(120, Math.min(880, centerX - dx / zoom));
+    const nextY = Math.max(80, Math.min(900, centerY - dy / zoom));
     onPanUpdate(nextX, nextY);
   };
-
-  const handlePointerUp = () => {
+  const handleFallbackPointerUp = () => {
     draggingRef.current = false;
   };
 
-  // Responder starts at Kolombong HQ (630, 410) and glides smoothly to (centerX, centerY)
-  const hqX = 630;
-  const hqY = 410;
-  const respX = hqX + (centerX - hqX) * responderProgress;
-  const respY = hqY + (centerY - hqY) * responderProgress;
-
-  const translateX = 270 - centerX * animatedZoom;
-  const translateY = 230 - centerY * animatedZoom;
+  const interpMapPos = latLngToMapCoords(interpPos.lat, interpPos.lng);
+  const showResp = showResponder || (stage !== undefined && stage >= 3);
 
   return (
     <div
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
+      onPointerDown={handleFallbackPointerDown}
+      onPointerMove={handleFallbackPointerMove}
+      onPointerUp={handleFallbackPointerUp}
+      onPointerCancel={handleFallbackPointerUp}
       className={`relative w-full h-full overflow-hidden select-none touch-none ${
         interactive ? 'cursor-grab active:cursor-grabbing' : ''
       } ${isLight ? 'bg-[#E2E8F0]' : 'bg-[#090D14]'}`}
     >
-      {/* Vector Sabah Map Canvas */}
-      <svg
-        viewBox="0 0 1000 1000"
-        className="w-full h-full pointer-events-none"
-        preserveAspectRatio="xMidYMid slice"
-      >
-        <g
-          transform={`translate(${translateX}, ${translateY}) scale(${animatedZoom})`}
+      {/* Resilient Sabah Navigation Grid Fallback when VITE_MAPBOX_ACCESS_TOKEN is demo/offline */}
+      {mapboxFallback && (
+        <div
+          className={`absolute inset-0 pointer-events-none ${
+            isLight
+              ? 'bg-[radial-gradient(circle_at_30%_30%,#E0F2FE_0%,#E2E8F0_60%,#CBD5E1_100%)]'
+              : 'bg-[radial-gradient(circle_at_30%_30%,#0B192C_0%,#090D14_65%,#05070B_100%)]'
+          }`}
         >
-          {/* South China Sea / Likas Bay / Tanjung Aru Coastline */}
-          <path
-            d="M 0,0 L 340,0 Q 385,180 355,340 Q 320,460 265,560 Q 210,680 245,1000 L 0,1000 Z"
-            fill={isLight ? '#BAE6FD' : '#0B192C'}
+          <div
+            className="absolute inset-0 opacity-25"
+            style={{
+              backgroundImage: isLight
+                ? 'linear-gradient(#94A3B8 1px, transparent 1px), linear-gradient(90deg, #94A3B8 1px, transparent 1px)'
+                : 'linear-gradient(#1E293B 1px, transparent 1px), linear-gradient(90deg, #1E293B 1px, transparent 1px)',
+              backgroundSize: `${Math.round(36 * zoom)}px ${Math.round(36 * zoom)}px`,
+            }}
           />
-          {/* Likas Bay Inlet */}
-          <path
-            d="M 355,270 Q 445,295 450,355 Q 395,380 345,355 Z"
-            fill={isLight ? '#BAE6FD' : '#0B192C'}
-          />
-          {/* Sabah Golf & Country Club / Bukit Padang Green Zone */}
-          <ellipse
-            cx="545"
-            cy="485"
-            rx="55"
-            ry="38"
-            fill={isLight ? '#BBF7D0' : '#0E241C'}
-            opacity="0.85"
-          />
-          {/* KKIA Airport Runway */}
-          <rect
-            x="275"
-            y="645"
-            width="115"
-            height="14"
-            rx="4"
-            transform="rotate(-18 275 645)"
-            fill={isLight ? '#CBD5E1' : '#1E2533'}
-          />
-
-          {/* Subtle Urban Grid */}
-          <g
-            stroke={isLight ? '#CBD5E1' : '#151C28'}
-            strokeWidth="1.5"
-            opacity="0.7"
-          >
-            {[150, 250, 350, 450, 550, 650, 750, 850].map((v) => (
-              <React.Fragment key={v}>
-                <line x1={v} y1={0} x2={v} y2={1000} />
-                <line x1={0} y1={v} x2={1000} y2={v} />
-              </React.Fragment>
-            ))}
-          </g>
-
-          {/* Major Sabah Arteries */}
-          {/* Coastal Highway -> Kepayan Highway */}
-          <path
-            d="M 440,220 Q 390,360 365,475 Q 340,590 325,740"
-            fill="none"
-            stroke={isLight ? '#F59E0B' : '#B45309'}
-            strokeWidth="7"
-            strokeLinecap="round"
-          />
-          {/* Jalan Lintas (Penampang - Luyang - Kolombong - Inanam) */}
-          <path
-            d="M 595,780 Q 545,620 520,540 Q 565,465 630,410 Q 675,345 715,170"
-            fill="none"
-            stroke={isLight ? '#F97316' : '#EA580C'}
-            strokeWidth="8"
-            strokeLinecap="round"
-          />
-          {/* Jalan Kolam / Damai / Luyang Connector */}
-          <path
-            d="M 370,470 Q 465,485 520,540 L 630,410"
-            fill="none"
-            stroke={isLight ? '#64748B' : '#334155'}
-            strokeWidth="5"
-            strokeLinecap="round"
-          />
-
-          {/* District & Landmark Labels */}
-          {[
-            { x: 630, y: 392, text: 'KOLOMBONG HQ', bold: true },
-            { x: 495, y: 525, text: 'LUYANG / JLN LINTAS', bold: true },
-            { x: 470, y: 465, text: 'DAMAI • JLN KOLAM', bold: false },
-            { x: 545, y: 490, text: 'SABAH GOLF & CC', bold: false },
-            { x: 325, y: 695, text: 'KKIA AIRPORT', bold: true },
-            { x: 455, y: 318, text: 'LIKAS BAY', bold: false },
-            { x: 695, y: 295, text: 'INANAM BYPASS', bold: false },
-            { x: 590, y: 760, text: 'DONGGONGON', bold: false },
-            { x: 265, y: 565, text: 'TANJUNG ARU', bold: false },
-            { x: 720, y: 145, text: '1BORNEO ALAMESRA', bold: false },
-          ].map((lbl, idx) => (
-            <text
-              key={idx}
-              x={lbl.x}
-              y={lbl.y}
-              textAnchor="middle"
-              fontSize={lbl.bold ? '13' : '11'}
-              fontWeight={lbl.bold ? '800' : '600'}
-              letterSpacing="0.8"
-              fill={
-                lbl.bold
-                  ? isLight
-                    ? '#0F172A'
-                    : '#E2E8F0'
-                  : isLight
-                  ? '#475569'
-                  : '#64748B'
-              }
+          <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/50 border border-white/10 text-[10px] font-mono text-gray-300">
+            Mapbox {isLight ? 'Day' : 'Night'} • {resolvedPinLat.toFixed(4)}, {resolvedPinLng.toFixed(4)}
+          </div>
+          {showResp && (
+            <div
+              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-none"
+              style={{
+                left: `${Math.max(12, Math.min(88, 50 + (interpMapPos.mapX - centerX) * 0.25))}%`,
+                top: `${Math.max(12, Math.min(88, 50 + (interpMapPos.mapY - centerY) * 0.25))}%`,
+              }}
             >
-              {lbl.text}
-            </text>
-          ))}
-
-          {/* Kolombong HQ Base Node */}
-          <circle
-            cx={hqX}
-            cy={hqY}
-            r="8"
-            fill="#10B981"
-            stroke="#064E3B"
-            strokeWidth="3"
-          />
-
-          {/* Active Rescue Dispatch Route Line & Interpolated Responder */}
-          {showResponder && (
-            <>
-              <line
-                x1={hqX}
-                y1={hqY}
-                x2={centerX}
-                y2={centerY}
-                stroke="#EF4444"
-                strokeWidth="4"
-                strokeDasharray="10 8"
-              />
-              <g transform={`translate(${respX}, ${respY})`}>
-                <circle r="18" fill="#EF4444" opacity="0.25" />
-                <circle
-                  r="11"
-                  fill="#2563EB"
-                  stroke="#FFFFFF"
-                  strokeWidth="2.5"
-                />
-                <text
-                  y="-16"
-                  textAnchor="middle"
-                  fontSize="11"
-                  fontWeight="800"
-                  fill="#60A5FA"
-                >
-                  KK-204 ROY
-                </text>
-              </g>
-            </>
+              <span className="px-1.5 py-0.5 rounded bg-blue-950/90 border border-blue-400/60 text-[10px] font-black text-blue-300 whitespace-nowrap mb-1">
+                KK-204 ROY
+              </span>
+              <div className="w-5 h-5 rounded-full bg-blue-600 border-2 border-white shadow-[0_0_16px_rgba(37,99,235,0.85)]" />
+            </div>
           )}
-        </g>
-      </svg>
+        </div>
+      )}
+
+      {/* Live Mapbox GL JS Container */}
+      <div
+        ref={mapContainerRef}
+        className={`w-full h-full ${mapboxFallback ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}
+      />
 
       {/* Stationary Center Red Teardrop Pin with Ground Shadow */}
-      <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center">
+      <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center z-10">
         <div className="relative flex flex-col items-center animate-bounce">
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 border-2 border-white shadow-[0_8px_24px_rgba(220,38,38,0.65)] flex items-center justify-center">
             <div className="w-3 h-3 rounded-full bg-white" />
@@ -2136,7 +2293,7 @@ const SosRadialButton: React.FC<{
 };
 
 // ============================================================================
-// 7. WEBRTC LIVE TOW-CAM MODAL (WITH TELEMETRY FALLBACK & IR NIGHT VISION)
+// 7. WEBRTC LIVE TOW-CAM MODAL (P2P SIGNALING + TELEMETRY HUD OVERLAY)
 // ============================================================================
 
 const LiveTowCamModal: React.FC = () => {
@@ -2144,54 +2301,260 @@ const LiveTowCamModal: React.FC = () => {
   const [irNightVision, setIrNightVision] = useState(true);
   const [pttActive, setPttActive] = useState(false);
   const [cameraFallback, setCameraFallback] = useState(false);
+  const [rtcState, setRtcState] = useState<string>('initializing');
+  const [liveRpm, setLiveRpm] = useState(1920);
+  const [liveKmh, setLiveKmh] = useState(42);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+
+  const isBroadcaster = state.screen === 'tow';
+  const slaEtaMins = Math.max(1, Math.ceil(state.slaSecondsRemaining / 60));
 
   useEffect(() => {
     if (!state.towCamOpen) return;
+    const t = setInterval(() => {
+      setLiveRpm(Math.round(1860 + Math.random() * 160));
+      setLiveKmh(Math.round(39 + Math.random() * 7));
+    }, 1400);
+    return () => clearInterval(t);
+  }, [state.towCamOpen]);
+
+  useEffect(() => {
+    if (!state.towCamOpen) return;
+
     let activeStream: MediaStream | null = null;
-    if (
-      typeof navigator !== 'undefined' &&
-      navigator.mediaDevices &&
-      navigator.mediaDevices.getUserMedia
-    ) {
-      navigator.mediaDevices
-        .getUserMedia({ video: { facingMode: 'environment' }, audio: false })
-        .then((stream) => {
-          activeStream = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
+    let bc: BroadcastChannel | null = null;
+    let ws: WebSocket | null = null;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const sendSignal = (
+      event: 'sdp_offer' | 'sdp_answer' | 'ice_candidate',
+      payload: Record<string, unknown>
+    ) => {
+      const msg = {
+        type: 'WEBRTC_SIGNAL',
+        event,
+        jobId: state.activeJobId,
+        role: isBroadcaster ? 'broadcaster' : 'receiver',
+        ...payload,
+      };
+      try {
+        bc?.postMessage(msg);
+      } catch {
+        // Ignore BroadcastChannel errors
+      }
+      try {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              topic: `realtime:towcam:${state.activeJobId}`,
+              event: 'broadcast',
+              payload: msg,
+              ref: String(Date.now()),
+            })
+          );
+        }
+      } catch {
+        // Ignore WebSocket errors
+      }
+    };
+
+    let pc: RTCPeerConnection | null = null;
+    try {
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
+      pcRef.current = pc;
+
+      pc.onconnectionstatechange = () => {
+        if (pc) setRtcState(pc.connectionState || 'active');
+      };
+
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate) {
+          sendSignal('ice_candidate', { candidate: ev.candidate.toJSON() });
+        }
+      };
+
+      if (!isBroadcaster) {
+        pc.ontrack = (ev) => {
+          if (videoRef.current && ev.streams[0]) {
+            videoRef.current.srcObject = ev.streams[0];
+            setCameraFallback(false);
+            setRtcState('connected');
           }
-          setCameraFallback(false);
-        })
-        .catch(() => {
-          setCameraFallback(true);
-        });
+        };
+      }
+    } catch {
+      setRtcState('simulated-p2p');
+    }
+
+    const handleSignalMessage = async (raw: Record<string, unknown>) => {
+      if (!pc || raw?.type !== 'WEBRTC_SIGNAL' || raw?.jobId !== state.activeJobId) {
+        return;
+      }
+      try {
+        if (
+          !isBroadcaster &&
+          raw.event === 'sdp_offer' &&
+          raw.sdp &&
+          typeof raw.sdp === 'object'
+        ) {
+          setRtcState('negotiating');
+          await pc.setRemoteDescription(
+            new RTCSessionDescription(raw.sdp as RTCSessionDescriptionInit)
+          );
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          sendSignal('sdp_answer', { sdp: answer });
+        } else if (
+          isBroadcaster &&
+          raw.event === 'sdp_answer' &&
+          raw.sdp &&
+          typeof raw.sdp === 'object'
+        ) {
+          await pc.setRemoteDescription(
+            new RTCSessionDescription(raw.sdp as RTCSessionDescriptionInit)
+          );
+          setRtcState('connected');
+        } else if (
+          raw.event === 'ice_candidate' &&
+          raw.candidate &&
+          typeof raw.candidate === 'object' &&
+          raw.role !== (isBroadcaster ? 'broadcaster' : 'receiver')
+        ) {
+          await pc.addIceCandidate(
+            new RTCIceCandidate(raw.candidate as RTCIceCandidateInit)
+          );
+        }
+      } catch {
+        // Ignore duplicate/out-of-order signaling frames
+      }
+    };
+
+    if (typeof BroadcastChannel !== 'undefined') {
+      bc = new BroadcastChannel('repairbah_sync');
+      bc.onmessage = (ev) => {
+        if (ev.data && typeof ev.data === 'object') {
+          void handleSignalMessage(ev.data as Record<string, unknown>);
+        }
+      };
+    }
+
+    try {
+      const wsBase = state.supabaseUrl.replace(/^https?:\/\//, 'wss://');
+      const wsUrl = `${wsBase}/realtime/v1/websocket?apikey=${encodeURIComponent(
+        state.supabaseAnonKey
+      )}&vsn=1.0.0`;
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        ws?.send(
+          JSON.stringify({
+            topic: `realtime:towcam:${state.activeJobId}`,
+            event: 'phx_join',
+            payload: { config: { broadcast: { self: false } } },
+            ref: 'towcam-1',
+          })
+        );
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const frame = JSON.parse(String(ev.data || '{}')) as {
+            event?: string;
+            payload?: Record<string, unknown>;
+          };
+          if (frame.event === 'broadcast' && frame.payload) {
+            void handleSignalMessage(frame.payload);
+          }
+        } catch {
+          // Ignore malformed signaling frames
+        }
+      };
+    } catch {
+      // BroadcastChannel remains active
+    }
+
+    if (isBroadcaster) {
+      setRtcState('broadcasting-offer');
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.mediaDevices &&
+        navigator.mediaDevices.getUserMedia
+      ) {
+        navigator.mediaDevices
+          .getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+          .then(async (stream) => {
+            activeStream = stream;
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+            }
+            setCameraFallback(false);
+            if (pc) {
+              stream.getTracks().forEach((tr) => pc?.addTrack(tr, stream));
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              sendSignal('sdp_offer', { sdp: offer });
+            }
+          })
+          .catch(async () => {
+            setCameraFallback(true);
+            if (pc) {
+              try {
+                pc.addTransceiver('video', { direction: 'sendonly' });
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                sendSignal('sdp_offer', { sdp: offer });
+              } catch {
+                // Ignore headless transceiver restriction
+              }
+            }
+          });
+      } else {
+        setCameraFallback(true);
+      }
     } else {
-      setCameraFallback(true);
+      // Customer acts as receiver listening for sdp_offer & ice_candidate
+      setRtcState('listening (sdp_offer / ice)');
+      fallbackTimer = setTimeout(() => {
+        if (!videoRef.current?.srcObject) {
+          setCameraFallback(true);
+        }
+      }, 900);
     }
 
     return () => {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       if (activeStream) {
         activeStream.getTracks().forEach((tr) => tr.stop());
       }
+      pc?.close();
+      pcRef.current = null;
+      bc?.close();
+      ws?.close();
     };
-  }, [state.towCamOpen]);
+  }, [
+    state.towCamOpen,
+    state.activeJobId,
+    state.supabaseUrl,
+    state.supabaseAnonKey,
+    isBroadcaster,
+  ]);
 
   if (!state.towCamOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/95 flex flex-col justify-between p-4 max-w-[540px] mx-auto">
       {/* Top Telemetry Bar */}
-      <div className="flex items-center justify-between z-10">
-        <div className="flex items-center gap-2 bg-black/70 border border-emerald-500/40 px-3 py-1.5 rounded-full">
-          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-          <span className="text-xs font-mono font-bold text-emerald-400">
-            LIVE TOW-CAM • FLATBED KK-204
+      <div className="flex items-center justify-between gap-2 z-10">
+        <div className="flex items-center gap-2 bg-black/70 border border-emerald-500/40 px-3 py-1.5 rounded-full min-w-0">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping shrink-0" />
+          <span className="text-[11px] font-mono font-bold text-emerald-400 truncate">
+            {isBroadcaster ? 'BROADCASTER' : 'RECEIVER'} • {rtcState.toUpperCase()}
           </span>
         </div>
         <button
           onClick={() => dispatch({ type: 'SET_TOWCAM_OPEN', payload: false })}
-          className="w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center"
+          className="w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center shrink-0"
         >
           <X className="w-5 h-5" />
         </button>
@@ -2218,7 +2581,7 @@ const LiveTowCamModal: React.FC = () => {
               REAR WINCH TELEMETRY STREAM ACTIVE
             </p>
             <p className="text-emerald-500/80 font-mono text-xs mt-1 max-w-xs">
-              WebRTC Hardware Feed Simulated (Desktop / Sandboxed Browser Mode)
+              WebRTC {isBroadcaster ? 'Broadcaster' : 'Receiver'} P2P Signaling Ready ({rtcState})
             </p>
             <div className="mt-6 w-56 h-28 border border-emerald-500/50 rounded-xl relative flex items-center justify-center">
               <div className="w-40 h-16 border-2 border-dashed border-emerald-400 rounded-lg flex items-center justify-center text-xs font-mono text-emerald-300">
@@ -2228,15 +2591,15 @@ const LiveTowCamModal: React.FC = () => {
           </div>
         )}
 
-        {/* HUD Reticle & Telemetry */}
+        {/* HUD Reticle & Telemetry directly on top of the <video> element */}
         <div className="absolute inset-4 border border-emerald-400/30 rounded-2xl pointer-events-none flex flex-col justify-between p-3 font-mono text-[11px] text-emerald-300">
-          <div className="flex justify-between">
-            <span>BED TILT: 11.8° NOMINAL</span>
-            <span>WINCH TENSION: 1,420 kgf</span>
+          <div className="flex justify-between gap-2">
+            <span>OBD-II RPM: {liveRpm.toLocaleString()}</span>
+            <span>BED TILT: 11.8° • 1,420 kgf</span>
           </div>
-          <div className="flex justify-between">
-            <span>WHEEL CHOCKS: 4/4 ENGAGED</span>
-            <span>SPEED: 42 KM/H • JLN LINTAS</span>
+          <div className="flex justify-between gap-2">
+            <span>{liveKmh} km/h • JLN LINTAS</span>
+            <span>SLA ETA: {slaEtaMins}m • CHOCKS 4/4</span>
           </div>
         </div>
       </div>
@@ -2681,6 +3044,11 @@ const CustomerSosScreen: React.FC = () => {
             centerX={state.pinnedLocation.mapX}
             centerY={state.pinnedLocation.mapY}
             zoom={mapZoom}
+            stage={state.rescueStage}
+            pinLat={state.pinnedLocation.lat}
+            pinLng={state.pinnedLocation.lng}
+            responderLat={responderLat}
+            responderLng={responderLng}
             flyToTrigger={flyTrigger}
             onPanUpdate={handleMapPanUpdate}
             onZoomChange={setMapZoom}
@@ -3038,6 +3406,11 @@ const CustomerSosScreen: React.FC = () => {
             centerX={state.pinnedLocation.mapX}
             centerY={state.pinnedLocation.mapY}
             zoom={1.35}
+            stage={state.rescueStage}
+            pinLat={state.pinnedLocation.lat}
+            pinLng={state.pinnedLocation.lng}
+            responderLat={responderLat}
+            responderLng={responderLng}
             interactive={false}
             showResponder={true}
             responderProgress={state.responderProgress}
