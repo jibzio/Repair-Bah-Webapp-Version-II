@@ -49,10 +49,10 @@ export function buildInitialState(): AppState {
     quoteItems: [
       {
         id: 'q1',
-        description: 'Patrol + Flatbed Rescue Dispatch & Diagnostic',
+        description: 'Mechanic Dispatch & Diagnostic',
         category: 'LABOR',
         qty: 1,
-        unitPrice: 140,
+        unitPrice: 85,
       },
       {
         id: 'q2',

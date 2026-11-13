@@ -7,3 +7,9 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+.mapboxgl-ctrl-bottom-left,
+.mapboxgl-ctrl-logo,
+.mapboxgl-ctrl-attrib {
+  display: none !important;
+}

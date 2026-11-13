@@ -254,9 +254,6 @@ export type AppAction =
 
 export function normalizeServiceType(raw?: string): EmergencyServiceType {
   const key = (raw || '').toLowerCase().trim();
-  if (key === 'battery_swap' || key === 'battery' || key.includes('batt')) {
-    return 'battery';
-  }
   if (
     key === 'patrol_tow' ||
     key === 'tow_truck' ||
@@ -264,25 +261,6 @@ export function normalizeServiceType(raw?: string): EmergencyServiceType {
     key.includes('tow')
   ) {
     return 'towing';
-  }
-  if (
-    key === 'flat_tyre' ||
-    key === 'tyre' ||
-    key.includes('tyre') ||
-    key.includes('tire')
-  ) {
-    return 'tyre';
-  }
-  if (key === 'diagnostic' || key.includes('diag') || key.includes('obd')) {
-    return 'diagnostic';
-  }
-  if (
-    key === 'mobile_mech' ||
-    key === 'fuel_delivery' ||
-    key === 'lockout' ||
-    key === 'callout'
-  ) {
-    return 'callout';
   }
   return 'callout';
 }

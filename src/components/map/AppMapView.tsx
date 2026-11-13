@@ -60,12 +60,14 @@ export interface AppMapViewProps {
   pinLat?: number;
   pinLng?: number;
   locationSource?: LocationSource;
+  responderClaimed?: boolean;
   responderLat?: number;
   responderLng?: number;
   interactive?: boolean;
   showResponder?: boolean;
   responderProgress?: number;
   flyToTrigger?: number;
+  bottomPadding?: number;
   onPanUpdate?: (
     newX: number,
     newY: number,
@@ -84,12 +86,14 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   pinLat,
   pinLng,
   locationSource,
+  responderClaimed = false,
   responderLat,
   responderLng,
   interactive = true,
   showResponder = false,
   responderProgress = 0.1,
   flyToTrigger = 0,
+  bottomPadding = 0,
   onPanUpdate,
   onZoomChange,
   isLight,
@@ -102,6 +106,9 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   const programmaticMoveRef = useRef(false);
   const onPanUpdateRef = useRef(onPanUpdate);
   onPanUpdateRef.current = onPanUpdate;
+
+  const shouldShowRoute =
+    Boolean(responderClaimed) && stage !== undefined && stage >= 3;
 
   const fallbackPinCoords = mapCoordsToLatLng(centerX, centerY);
   const resolvedPinLat = pinLat ?? fallbackPinCoords.lat;
@@ -119,6 +126,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     respLat: resolvedRespLat,
     respLng: resolvedRespLng,
     responderVisible: showResponder || (stage !== undefined && stage >= 3),
+    showRoute: shouldShowRoute,
     isGpsLocked: locationSource === 'gps',
   });
   targetCoordsRef.current = {
@@ -127,6 +135,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     respLat: resolvedRespLat,
     respLng: resolvedRespLng,
     responderVisible: showResponder || (stage !== undefined && stage >= 3),
+    showRoute: shouldShowRoute,
     isGpsLocked: locationSource === 'gps',
   };
 
@@ -163,15 +172,23 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         interactive,
         attributionControl: false,
       });
+      if (bottomPadding > 0) {
+        map.setPadding({ top: 0, right: 0, bottom: bottomPadding, left: 0 });
+      }
       mapRef.current = map;
 
       const hqEl = document.createElement('div');
       hqEl.className =
         'w-4 h-4 rounded-full bg-emerald-500 border-2 border-emerald-950 shadow-lg';
       hqEl.title = 'Kolombong HQ';
-      hqMarkerRef.current = new mapboxgl.Marker({ element: hqEl })
-        .setLngLat([KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT])
-        .addTo(map);
+      const hqMarker = new mapboxgl.Marker({ element: hqEl }).setLngLat([
+        KOLOMBONG_HQ_LNG,
+        KOLOMBONG_HQ_LAT,
+      ]);
+      if (targetCoordsRef.current.showRoute) {
+        hqMarker.addTo(map);
+      }
+      hqMarkerRef.current = hqMarker;
 
       const gpsEl = document.createElement('div');
       gpsEl.className = 'relative flex items-center justify-center pointer-events-none';
@@ -200,7 +217,13 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
       responderMarkerRef.current = respMarker;
 
       const ensureRouteLayer = () => {
-        if (isUnmounted || !map || mapRef.current !== map || !map.isStyleLoaded()) {
+        if (
+          isUnmounted ||
+          !map ||
+          mapRef.current !== map ||
+          !map.isStyleLoaded() ||
+          !targetCoordsRef.current.showRoute
+        ) {
           return;
         }
         try {
@@ -322,6 +345,16 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    try {
+      map.setPadding({ top: 0, right: 0, bottom: bottomPadding, left: 0 });
+    } catch {
+      // Ignore padding errors during teardown
+    }
+  }, [bottomPadding]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
     const targetZoom = toMapboxZoom(zoom);
     programmaticMoveRef.current = true;
     try {
@@ -330,18 +363,20 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
           center: [resolvedPinLng, resolvedPinLat],
           zoom: targetZoom,
           duration: 850,
+          padding: { top: 0, right: 0, bottom: bottomPadding, left: 0 },
         });
       } else {
         map.easeTo({
           center: [resolvedPinLng, resolvedPinLat],
           zoom: targetZoom,
           duration: 280,
+          padding: { top: 0, right: 0, bottom: bottomPadding, left: 0 },
         });
       }
     } catch {
       programmaticMoveRef.current = false;
     }
-  }, [resolvedPinLat, resolvedPinLng, zoom, flyToTrigger]);
+  }, [resolvedPinLat, resolvedPinLng, zoom, flyToTrigger, bottomPadding]);
 
   useEffect(() => {
     let frameId = 0;
@@ -373,6 +408,16 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         }
       }
 
+      const hqMarker = hqMarkerRef.current;
+      if (map && hqMarker) {
+        const hqAttached = Boolean(hqMarker.getElement().parentElement);
+        if (targets.showRoute && !hqAttached) {
+          hqMarker.addTo(map);
+        } else if (!targets.showRoute && hqAttached) {
+          hqMarker.remove();
+        }
+      }
+
       const respMarker = responderMarkerRef.current;
       if (map && respMarker) {
         respMarker.setLngLat([curLng, curLat]);
@@ -384,11 +429,46 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         }
         if (styleLoaded && map.isStyleLoaded()) {
           try {
-            const routeSrc = map.getSource('rescue-route') as
-              | mapboxgl.GeoJSONSource
-              | undefined;
-            if (routeSrc) {
-              routeSrc.setData({
+            if (targets.showRoute) {
+              if (!map.getSource('rescue-route')) {
+                map.addSource('rescue-route', {
+                  type: 'geojson',
+                  data: {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: {
+                      type: 'LineString',
+                      coordinates: [
+                        [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                        [curLng, curLat],
+                        [targets.pinLng, targets.pinLat],
+                      ],
+                    },
+                  },
+                });
+              }
+              if (!map.getLayer('rescue-route-line')) {
+                map.addLayer({
+                  id: 'rescue-route-line',
+                  type: 'line',
+                  source: 'rescue-route',
+                  paint: {
+                    'line-color': '#EF4444',
+                    'line-width': 4,
+                    'line-dasharray': [2, 2],
+                  },
+                });
+              } else {
+                map.setLayoutProperty(
+                  'rescue-route-line',
+                  'visibility',
+                  'visible'
+                );
+              }
+              const routeSrc = map.getSource('rescue-route') as
+                | mapboxgl.GeoJSONSource
+                | undefined;
+              routeSrc?.setData({
                 type: 'Feature',
                 properties: {},
                 geometry: {
@@ -405,6 +485,8 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
                       ],
                 },
               });
+            } else if (map.getLayer('rescue-route-line')) {
+              map.setLayoutProperty('rescue-route-line', 'visibility', 'none');
             }
           } catch {
             // Ignore transient style updates
@@ -510,13 +592,29 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
       />
 
       {mapboxFallback && locationSource === 'gps' && (
-        <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center z-10">
+        <div
+          className="pointer-events-none absolute left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center z-10 transition-all duration-300"
+          style={{
+            top:
+              bottomPadding > 0
+                ? `calc(50% - ${Math.round(bottomPadding / 2)}px)`
+                : '50%',
+          }}
+        >
           <span className="absolute w-7 h-7 rounded-full bg-blue-500/30 animate-ping" />
           <span className="relative w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white shadow-[0_0_14px_rgba(59,130,246,0.9)]" />
         </div>
       )}
 
-      <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center z-10">
+      <div
+        className="pointer-events-none absolute left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center z-10 transition-all duration-300"
+        style={{
+          top:
+            bottomPadding > 0
+              ? `calc(50% - ${Math.round(bottomPadding / 2)}px)`
+              : '50%',
+        }}
+      >
         <div className="relative flex flex-col items-center animate-bounce">
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 border-2 border-white shadow-[0_8px_24px_rgba(220,38,38,0.65)] flex items-center justify-center">
             <div className="w-3 h-3 rounded-full bg-white" />

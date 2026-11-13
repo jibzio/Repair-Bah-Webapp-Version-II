@@ -30,7 +30,9 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { Sos3DButton } from '../components/button/Sos3DButton';
 import { AppMapView } from '../components/map/AppMapView';
 import {
   ARRIVAL_GEOFENCE_METERS,
@@ -69,128 +71,18 @@ const SosRadialButton: React.FC<{
   isLight: boolean;
   lang: Language;
 }> = ({ onTrigger, isLight, lang }) => {
-  const [progress, setProgress] = useState(0);
-  const [holding, setHolding] = useState(false);
-  const rafRef = useRef<number | null>(null);
-  const startRef = useRef<number>(0);
-  const triggeredRef = useRef(false);
-
-  const stopHold = useCallback(() => {
-    setHolding(false);
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    if (!triggeredRef.current) {
-      setProgress(0);
-    }
-  }, []);
-
-  const startHold = (e: React.PointerEvent) => {
-    e.preventDefault();
-    if (triggeredRef.current) return;
-    setHolding(true);
-    startRef.current = performance.now();
-
-    const step = (now: number) => {
-      const elapsed = now - startRef.current;
-      const pct = Math.min(100, (elapsed / 2500) * 100);
-      setProgress(pct);
-      if (pct >= 100) {
-        triggeredRef.current = true;
-        setHolding(false);
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          navigator.vibrate([120, 60, 200]);
-        }
-        onTrigger();
-        setTimeout(() => {
-          triggeredRef.current = false;
-          setProgress(0);
-        }, 400);
-        return;
-      }
-      rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
   const t = I18N[lang];
-  const radius = 104;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (progress / 100) * circumference;
 
   return (
     <div className="flex flex-col items-center justify-center my-auto py-2">
-      <div
-        onPointerDown={startHold}
-        onPointerUp={stopHold}
-        onPointerLeave={stopHold}
-        onPointerCancel={stopHold}
-        role="button"
-        tabIndex={0}
-        aria-label="Hold 2.5 seconds for SOS Rescue"
-        className={`relative w-64 h-64 rounded-full flex items-center justify-center select-none touch-none cursor-pointer transition-transform duration-150 ${
-          holding ? 'scale-95' : 'scale-100'
-        }`}
-      >
-        <div className="absolute inset-0 rounded-full bg-red-600/10 border border-red-500/20 animate-ping [animation-duration:3s]" />
-        <div className="absolute inset-3 rounded-full bg-red-950/40 border border-red-500/30" />
-        <div className="absolute inset-6 rounded-full bg-red-950/60 border border-red-500/40" />
-
-        <svg
-          className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none"
-          viewBox="0 0 240 240"
-        >
-          <circle
-            cx="120"
-            cy="120"
-            r={radius}
-            fill="none"
-            stroke="rgba(239,68,68,0.18)"
-            strokeWidth="8"
-          />
-          <circle
-            cx="120"
-            cy="120"
-            r={radius}
-            fill="none"
-            stroke="#EF4444"
-            strokeWidth="8"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={dashOffset}
-          />
-        </svg>
-
-        <div
-          className="relative w-44 h-44 rounded-full flex flex-col items-center justify-center text-white shadow-[0_0_55px_rgba(220,38,38,0.65)] border-2 border-red-400/50"
-          style={{
-            background:
-              'radial-gradient(circle at 35% 30%, #EF4444 0%, #DC2626 52%, #7F1D1D 100%)',
-          }}
-        >
-          <span className="text-[11px] font-extrabold tracking-[0.22em] text-red-100">
-            {t.holdFor}
-          </span>
-          <span className="text-3xl font-black tracking-tight my-0.5 drop-shadow">
-            ((SOS))
-          </span>
-          <span className="text-[11px] font-extrabold tracking-[0.22em] text-red-100">
-            {t.rescue}
-          </span>
-          {holding && (
-            <span className="mt-1.5 text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded-full">
-              {Math.round(progress)}%
-            </span>
-          )}
-        </div>
-      </div>
+      <Sos3DButton
+        mode="hold"
+        size="lg"
+        topLabel={t.holdFor}
+        centerLabel="((SOS))"
+        bottomLabel={t.rescue}
+        onTrigger={onTrigger}
+      />
 
       <div className="text-center px-6 mt-3">
         <p
@@ -265,6 +157,7 @@ export const CustomerSosScreen: React.FC = () => {
   >([]);
   const [enteredPin, setEnteredPin] = useState('');
   const [isLocating, setIsLocating] = useState(false);
+  const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const geoRequestIdRef = useRef(0);
   const geoAbortRef = useRef<AbortController | null>(null);
   const autoGpsAttemptedRef = useRef(false);
@@ -362,6 +255,7 @@ export const CustomerSosScreen: React.FC = () => {
       return;
     }
     if (state.rescueStage === 1) {
+      setSheetCollapsed(false);
       setFlyTrigger((c) => c + 1);
       setAddressQuery(state.pinnedLocation.address);
       if (!autoGpsAttemptedRef.current) {
@@ -425,7 +319,7 @@ export const CustomerSosScreen: React.FC = () => {
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&limit=3&q=${encodeURIComponent(
+          `https://nominatim.openstreetmap.org/search?format=json&countrycodes=my&limit=3&q=${encodeURIComponent(
             addressQuery + ' Sabah Malaysia'
           )}`,
           { signal: controller.signal }
@@ -751,8 +645,8 @@ export const CustomerSosScreen: React.FC = () => {
     );
 
     return (
-      <div className="flex-1 flex flex-col relative overflow-hidden pb-20">
-        <div className="flex-1 relative">
+      <div className="flex-1 relative overflow-hidden">
+        <div className="absolute inset-0">
           <ErrorBoundary compact fallbackTitle="Sabah Map Recovery Shield">
             <AppMapView
               centerX={state.pinnedLocation.mapX}
@@ -762,54 +656,82 @@ export const CustomerSosScreen: React.FC = () => {
               pinLat={state.pinnedLocation.lat}
               pinLng={state.pinnedLocation.lng}
               locationSource={state.pinnedLocation.source}
+              responderClaimed={state.responderClaimed}
               responderLat={responderLat}
               responderLng={responderLng}
               flyToTrigger={flyTrigger}
+              bottomPadding={sheetCollapsed ? 160 : 340}
               onPanUpdate={handleMapPanUpdate}
               onZoomChange={setMapZoom}
               isLight={isLight}
             />
           </ErrorBoundary>
+        </div>
 
-          <div className="absolute top-4 left-4 flex items-center gap-2 z-20">
-            <button
-              onClick={() => dispatch({ type: 'SET_DRAWER', payload: true })}
-              aria-label="Open drawer"
-              className="w-11 h-11 rounded-full bg-[#141923]/95 border border-[#282C37] text-white shadow-xl flex items-center justify-center"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => dispatch({ type: 'SET_RESCUE_STAGE', payload: 0 })}
-              className="px-3 py-2 rounded-full bg-[#141923]/95 border border-[#282C37] text-xs font-bold text-gray-300 shadow-xl flex items-center gap-1"
-            >
-              <ChevronLeft className="w-4 h-4" /> Cancel
-            </button>
-          </div>
-
+        <div className="absolute top-4 left-4 flex items-center gap-2 z-20">
           <button
-            onClick={() => void handleGpsLocate()}
-            disabled={isLocating}
-            aria-label="Recenter GPS"
-            aria-busy={isLocating}
-            className="absolute right-3 bottom-4 w-11 h-11 rounded-full bg-[#141923]/95 border border-[#282C37] text-red-400 shadow-xl flex items-center justify-center z-20 disabled:opacity-75"
+            onClick={() => dispatch({ type: 'SET_DRAWER', payload: true })}
+            aria-label="Open drawer"
+            className="w-11 h-11 rounded-full bg-[#141923]/95 border border-[#282C37] text-white shadow-xl flex items-center justify-center"
           >
-            {isLocating ? (
-              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-            ) : (
-              <Crosshair className="w-5 h-5" />
-            )}
+            <Menu className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_RESCUE_STAGE', payload: 0 })}
+            className="px-3 py-2 rounded-full bg-[#141923]/95 border border-[#282C37] text-xs font-bold text-gray-300 shadow-xl flex items-center gap-1"
+          >
+            <ChevronLeft className="w-4 h-4" /> Cancel
           </button>
         </div>
 
-        <div
-          className={`rounded-t-3xl border-t p-4 shadow-[0_-12px_40px_rgba(0,0,0,0.65)] z-30 ${
-            isLight
-              ? 'bg-white border-slate-200 text-slate-900'
-              : 'bg-[#141923] border-[#282C37] text-white'
+        <button
+          onClick={() => void handleGpsLocate()}
+          disabled={isLocating}
+          aria-label="Recenter GPS"
+          aria-busy={isLocating}
+          className={`absolute right-3 w-11 h-11 rounded-full bg-[#141923]/95 border border-[#282C37] text-red-400 shadow-xl flex items-center justify-center z-20 disabled:opacity-75 transition-all duration-300 ${
+            sheetCollapsed ? 'bottom-[190px]' : 'bottom-[410px]'
           }`}
         >
-          <div className="w-10 h-1 rounded-full bg-gray-600/50 mx-auto mb-3" />
+          {isLocating ? (
+            <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+          ) : (
+            <Crosshair className="w-5 h-5" />
+          )}
+        </button>
+
+        <motion.div
+          drag="y"
+          dragConstraints={{ top: 0, bottom: 230 }}
+          dragElastic={0.12}
+          onDragEnd={(_e, info) => {
+            if (info.offset.y > 60 || info.velocity.y > 300) {
+              setSheetCollapsed(true);
+            } else if (info.offset.y < -40 || info.velocity.y < -300) {
+              setSheetCollapsed(false);
+            }
+          }}
+          animate={{ y: sheetCollapsed ? 225 : 0 }}
+          transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+          className={`absolute left-0 right-0 bottom-[66px] rounded-t-3xl border-t p-4 shadow-[0_-12px_40px_rgba(0,0,0,0.65)] z-20 ${
+            isLight
+              ? 'bg-white/95 border-slate-200 text-slate-900'
+              : 'bg-[#141923]/95 border-[#282C37] text-white'
+          } backdrop-blur-md`}
+        >
+          <button
+            type="button"
+            onClick={() => setSheetCollapsed((c) => !c)}
+            aria-label={
+              sheetCollapsed
+                ? 'Expand location confirmation sheet'
+                : 'Slide down to view map'
+            }
+            className="w-full flex flex-col items-center pb-2.5 cursor-grab active:cursor-grabbing"
+          >
+            <div className="w-12 h-1.5 rounded-full bg-gray-500/70" />
+          </button>
+
           <div className="flex items-center justify-between gap-2 mb-3">
             <h2 className="text-xs font-black tracking-[0.15em] text-red-400 uppercase">
               {t.confirmLocation}
@@ -846,7 +768,10 @@ export const CustomerSosScreen: React.FC = () => {
               <input
                 type="text"
                 value={addressQuery}
-                onFocus={() => setShowSuggestions(true)}
+                onFocus={() => {
+                  setSheetCollapsed(false);
+                  setShowSuggestions(true);
+                }}
                 onChange={(e) => {
                   ++geoRequestIdRef.current;
                   geoAbortRef.current?.abort();
@@ -887,7 +812,10 @@ export const CustomerSosScreen: React.FC = () => {
                 GPS
               </button>
               <button
-                onClick={() => setShowSuggestions((s) => !s)}
+                onClick={() => {
+                  setSheetCollapsed(false);
+                  setShowSuggestions((s) => !s);
+                }}
                 className="px-2 py-1 rounded-lg bg-red-600/20 text-red-400 text-[10px] font-bold shrink-0"
               >
                 Landmarks
@@ -971,7 +899,7 @@ export const CustomerSosScreen: React.FC = () => {
             )}
           </div>
 
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-3 no-scrollbar">
+          <div className="grid grid-cols-2 gap-2.5 mb-3">
             {SERVICES.map((svc) => {
               const selected = state.selectedService.id === svc.id;
               return (
@@ -980,7 +908,7 @@ export const CustomerSosScreen: React.FC = () => {
                   onClick={() =>
                     dispatch({ type: 'SELECT_SERVICE', payload: svc })
                   }
-                  className={`shrink-0 px-3.5 py-2.5 rounded-xl border text-left transition-all ${
+                  className={`px-3.5 py-2.5 rounded-xl border text-left transition-all ${
                     selected
                       ? 'bg-red-600/20 border-red-500 shadow-[0_0_16px_rgba(220,38,38,0.3)]'
                       : isLight
@@ -1003,7 +931,13 @@ export const CustomerSosScreen: React.FC = () => {
             })}
           </div>
 
-          <button
+          <Sos3DButton
+            mode="tap"
+            size="md"
+            topLabel="CONFIRM"
+            centerLabel="((SOS))"
+            bottomLabel={`RM ${state.selectedService.price}`}
+            label={`${t.confirmProceed} (RM ${state.selectedService.price}.00)`}
             onClick={async () => {
               dispatch({ type: 'SET_RESCUE_STAGE', payload: 2 });
               await syncJobToSupabase({
@@ -1026,17 +960,8 @@ export const CustomerSosScreen: React.FC = () => {
                 'success'
               );
             }}
-            className="w-full py-3.5 px-4 rounded-2xl font-black text-sm text-white shadow-[0_10px_28px_rgba(220,38,38,0.45)] flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"
-            style={{
-              background: 'linear-gradient(135deg, #EF4444 0%, #B91C1C 100%)',
-            }}
-          >
-            <span>{t.confirmProceed}</span>
-            <span className="font-mono bg-black/25 px-2 py-0.5 rounded-lg text-xs">
-              (RM {state.selectedService.price}.00)
-            </span>
-          </button>
-        </div>
+          />
+        </motion.div>
       </div>
     );
   }
@@ -1159,10 +1084,12 @@ export const CustomerSosScreen: React.FC = () => {
               stage={state.rescueStage}
               pinLat={state.pinnedLocation.lat}
               pinLng={state.pinnedLocation.lng}
+              locationSource={state.pinnedLocation.source}
               responderLat={responderLat}
               responderLng={responderLng}
               interactive={false}
               showResponder={true}
+              responderClaimed={state.responderClaimed}
               responderProgress={state.responderProgress}
               isLight={isLight}
             />
