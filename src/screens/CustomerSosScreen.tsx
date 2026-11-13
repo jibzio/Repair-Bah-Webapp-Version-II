@@ -163,35 +163,35 @@ export const CustomerSosScreen: React.FC = () => {
   const geoRequestIdRef = useRef(0);
   const geoAbortRef = useRef<AbortController | null>(null);
   const autoGpsAttemptedRef = useRef(false);
-  const panEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sigCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingSig = useRef(false);
 
-  const clearPanEndTimer = useCallback(() => {
-    if (panEndTimerRef.current) {
-      clearTimeout(panEndTimerRef.current);
-      panEndTimerRef.current = null;
+  const clearPanRestoreTimer = useCallback(() => {
+    if (panRestoreTimerRef.current) {
+      clearTimeout(panRestoreTimerRef.current);
+      panRestoreTimerRef.current = null;
     }
   }, []);
 
-  const expandSheetNow = useCallback(() => {
-    clearPanEndTimer();
+  const expandSheet = useCallback(() => {
+    clearPanRestoreTimer();
     setSheetCollapsed(false);
-  }, [clearPanEndTimer]);
+  }, [clearPanRestoreTimer]);
 
   const collapseSheetForPan = useCallback(() => {
-    clearPanEndTimer();
+    clearPanRestoreTimer();
     setShowSuggestions(false);
     setSheetCollapsed(true);
-  }, [clearPanEndTimer]);
+  }, [clearPanRestoreTimer]);
 
   const scheduleSheetRestore = useCallback(() => {
-    clearPanEndTimer();
-    panEndTimerRef.current = setTimeout(() => {
-      panEndTimerRef.current = null;
+    clearPanRestoreTimer();
+    panRestoreTimerRef.current = setTimeout(() => {
+      panRestoreTimerRef.current = null;
       setSheetCollapsed(false);
-    }, 250);
-  }, [clearPanEndTimer]);
+    }, 300);
+  }, [clearPanRestoreTimer]);
 
   const handleGpsLocate = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -274,20 +274,20 @@ export const CustomerSosScreen: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      clearPanEndTimer();
+      clearPanRestoreTimer();
       geoAbortRef.current?.abort();
     };
-  }, [clearPanEndTimer]);
+  }, [clearPanRestoreTimer]);
 
   useEffect(() => {
     if (state.rescueStage === 0) {
-      clearPanEndTimer();
+      clearPanRestoreTimer();
       autoGpsAttemptedRef.current = false;
       return;
     }
     if (state.rescueStage === 1) {
       setSetupStep('location');
-      expandSheetNow();
+      expandSheet();
       setShowSuggestions(false);
       setFlyTrigger((c) => c + 1);
       setAddressQuery(state.pinnedLocation.address);
@@ -411,7 +411,7 @@ export const CustomerSosScreen: React.FC = () => {
   };
 
   const selectLandmark = (lm: SabahLandmark) => {
-    expandSheetNow();
+    expandSheet();
     ++geoRequestIdRef.current;
     geoAbortRef.current?.abort();
     setIsLocating(false);
@@ -721,12 +721,6 @@ export const CustomerSosScreen: React.FC = () => {
         lm.district.toLowerCase().includes(addressQuery.toLowerCase())
     );
 
-    const sheetBottomPadding = sheetCollapsed
-      ? 96
-      : setupStep === 'location'
-      ? 235
-      : 270;
-
     return (
       <div className="flex-1 relative overflow-hidden">
         <div className="absolute inset-0">
@@ -743,7 +737,7 @@ export const CustomerSosScreen: React.FC = () => {
               responderLat={responderLat}
               responderLng={responderLng}
               flyToTrigger={flyTrigger}
-              bottomPadding={sheetBottomPadding}
+              bottomPadding={210}
               onPanStart={collapseSheetForPan}
               onPanEnd={scheduleSheetRestore}
               onPanUpdate={handleMapPanUpdate}
@@ -771,7 +765,7 @@ export const CustomerSosScreen: React.FC = () => {
 
         <button
           onClick={() => {
-            expandSheetNow();
+            expandSheet();
             void handleGpsLocate();
           }}
           disabled={isLocating}
@@ -794,7 +788,7 @@ export const CustomerSosScreen: React.FC = () => {
 
         <EmergencyBottomSheet
           collapsed={sheetCollapsed}
-          onExpand={expandSheetNow}
+          onExpand={expandSheet}
           onCollapse={collapseSheetForPan}
           isLight={isLight}
           header={
@@ -853,11 +847,11 @@ export const CustomerSosScreen: React.FC = () => {
                     type="text"
                     value={addressQuery}
                     onFocus={() => {
-                      expandSheetNow();
+                      expandSheet();
                       setShowSuggestions(true);
                     }}
                     onChange={(e) => {
-                      expandSheetNow();
+                      expandSheet();
                       ++geoRequestIdRef.current;
                       geoAbortRef.current?.abort();
                       setIsLocating(false);
@@ -870,7 +864,7 @@ export const CustomerSosScreen: React.FC = () => {
                   {addressQuery && (
                     <button
                       onClick={() => {
-                        expandSheetNow();
+                        expandSheet();
                         ++geoRequestIdRef.current;
                         geoAbortRef.current?.abort();
                         setIsLocating(false);
@@ -885,7 +879,7 @@ export const CustomerSosScreen: React.FC = () => {
                   )}
                   <button
                     onClick={() => {
-                      expandSheetNow();
+                      expandSheet();
                       void handleGpsLocate();
                     }}
                     disabled={isLocating}
@@ -902,7 +896,7 @@ export const CustomerSosScreen: React.FC = () => {
                   </button>
                   <button
                     onClick={() => {
-                      expandSheetNow();
+                      expandSheet();
                       setShowSuggestions((s) => !s);
                     }}
                     className="px-2 py-1 rounded-lg bg-red-600/20 text-red-400 text-[10px] font-bold shrink-0"
@@ -934,7 +928,7 @@ export const CustomerSosScreen: React.FC = () => {
                       <button
                         key={`osm-${i}`}
                         onClick={() => {
-                          expandSheetNow();
+                          expandSheet();
                           ++geoRequestIdRef.current;
                           geoAbortRef.current?.abort();
                           setIsLocating(false);
@@ -1005,7 +999,7 @@ export const CustomerSosScreen: React.FC = () => {
                     });
                   }
                   setShowSuggestions(false);
-                  expandSheetNow();
+                  expandSheet();
                   setSetupStep('service');
                 }}
                 className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
@@ -1034,7 +1028,7 @@ export const CustomerSosScreen: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    expandSheetNow();
+                    expandSheet();
                     setSetupStep('location');
                   }}
                   className="text-xs font-bold text-red-400 hover:underline shrink-0"
@@ -1051,7 +1045,7 @@ export const CustomerSosScreen: React.FC = () => {
                       key={svc.id}
                       type="button"
                       onClick={() => {
-                        expandSheetNow();
+                        expandSheet();
                         dispatch({ type: 'SELECT_SERVICE', payload: svc });
                         setSetupStep('confirm');
                       }}
@@ -1109,7 +1103,7 @@ export const CustomerSosScreen: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      expandSheetNow();
+                      expandSheet();
                       setSetupStep('location');
                     }}
                     className="text-xs font-bold text-red-400 hover:underline shrink-0"
@@ -1139,7 +1133,7 @@ export const CustomerSosScreen: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      expandSheetNow();
+                      expandSheet();
                       setSetupStep('service');
                     }}
                     className="text-xs font-bold text-red-400 hover:underline shrink-0"
@@ -1152,7 +1146,7 @@ export const CustomerSosScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={async () => {
-                  clearPanEndTimer();
+                  clearPanRestoreTimer();
                   dispatch({ type: 'SET_RESCUE_STAGE', payload: 2 });
                   await syncJobToSupabase({
                     id: state.activeJobId,

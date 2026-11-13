@@ -10,7 +10,7 @@ export interface EmergencyBottomSheetProps {
   children: React.ReactNode;
 }
 
-const PEEK_HEIGHT_PX = 96;
+const HEADER_PEEK_PX = 88;
 
 export const EmergencyBottomSheet: React.FC<EmergencyBottomSheetProps> = ({
   collapsed,
@@ -22,7 +22,8 @@ export const EmergencyBottomSheet: React.FC<EmergencyBottomSheetProps> = ({
 }) => {
   const dragControls = useDragControls();
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const draggedRef = useRef(false);
+  const wasDraggedRef = useRef(false);
+  const resetDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sheetHeight, setSheetHeight] = useState(0);
 
   useEffect(() => {
@@ -44,7 +45,24 @@ export const EmergencyBottomSheet: React.FC<EmergencyBottomSheetProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  const collapsedOffset = Math.max(0, Math.round(sheetHeight - PEEK_HEIGHT_PX));
+  useEffect(() => {
+    return () => {
+      if (resetDragTimerRef.current) {
+        clearTimeout(resetDragTimerRef.current);
+      }
+    };
+  }, []);
+
+  const collapsedY = Math.max(0, Math.round(sheetHeight - HEADER_PEEK_PX));
+
+  const handleHeaderToggle = () => {
+    if (wasDraggedRef.current) return;
+    if (collapsed) {
+      onExpand();
+    } else {
+      onCollapse();
+    }
+  };
 
   return (
     <motion.div
@@ -52,24 +70,40 @@ export const EmergencyBottomSheet: React.FC<EmergencyBottomSheetProps> = ({
       drag="y"
       dragControls={dragControls}
       dragListener={false}
-      dragConstraints={{ top: 0, bottom: collapsedOffset }}
-      dragElastic={0.1}
+      dragConstraints={{ top: 0, bottom: collapsedY }}
+      dragElastic={0.08}
       onDragStart={() => {
-        draggedRef.current = true;
+        if (resetDragTimerRef.current) {
+          clearTimeout(resetDragTimerRef.current);
+          resetDragTimerRef.current = null;
+        }
+        wasDraggedRef.current = false;
+      }}
+      onDrag={(_e, info) => {
+        if (Math.abs(info.offset.y) >= 6) {
+          wasDraggedRef.current = true;
+        }
       }}
       onDragEnd={(_e, info) => {
-        if (info.offset.y > 45 || info.velocity.y > 260) {
-          onCollapse();
-        } else if (info.offset.y < -30 || info.velocity.y < -260) {
-          onExpand();
+        const dragged = Math.abs(info.offset.y) >= 6;
+        if (dragged) {
+          wasDraggedRef.current = true;
+          if (info.offset.y > 40 || info.velocity.y > 240) {
+            onCollapse();
+          } else if (info.offset.y < -30 || info.velocity.y < -240) {
+            onExpand();
+          }
+          resetDragTimerRef.current = setTimeout(() => {
+            wasDraggedRef.current = false;
+            resetDragTimerRef.current = null;
+          }, 80);
+        } else {
+          wasDraggedRef.current = false;
         }
-        setTimeout(() => {
-          draggedRef.current = false;
-        }, 60);
       }}
-      animate={{ y: collapsed ? collapsedOffset : 0 }}
+      animate={{ y: collapsed ? collapsedY : 0 }}
       transition={{ type: 'spring', stiffness: 340, damping: 32 }}
-      className={`absolute left-0 right-0 bottom-[66px] rounded-t-3xl border-t p-4 shadow-[0_-12px_40px_rgba(0,0,0,0.65)] z-20 ${
+      className={`absolute left-0 right-0 bottom-[66px] rounded-t-3xl border-t p-4 shadow-[0_-12px_40px_rgba(0,0,0,0.65)] z-30 ${
         isLight
           ? 'bg-white/95 border-slate-200 text-slate-900'
           : 'bg-[#141923]/95 border-[#282C37] text-white'
@@ -79,22 +113,14 @@ export const EmergencyBottomSheet: React.FC<EmergencyBottomSheetProps> = ({
         role="button"
         tabIndex={0}
         onPointerDown={(e) => {
-          draggedRef.current = false;
+          wasDraggedRef.current = false;
           dragControls.start(e);
         }}
-        onClick={() => {
-          if (draggedRef.current) return;
-          if (collapsed) {
-            onExpand();
-          } else {
-            onCollapse();
-          }
-        }}
+        onClick={handleHeaderToggle}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            if (collapsed) onExpand();
-            else onCollapse();
+            handleHeaderToggle();
           }
         }}
         aria-label={
@@ -102,17 +128,11 @@ export const EmergencyBottomSheet: React.FC<EmergencyBottomSheetProps> = ({
             ? 'Expand location confirmation sheet'
             : 'Slide down to view map'
         }
-        className="w-full flex flex-col items-center pb-2.5 touch-none cursor-grab active:cursor-grabbing select-none"
+        className="w-full touch-none cursor-grab active:cursor-grabbing select-none"
       >
-        <div className="w-12 h-1.5 rounded-full bg-gray-500/70" />
-      </div>
-
-      <div
-        onClick={() => {
-          if (collapsed) onExpand();
-        }}
-        className={collapsed ? 'cursor-pointer' : ''}
-      >
+        <div className="w-full flex flex-col items-center pb-2.5">
+          <div className="w-12 h-1.5 rounded-full bg-gray-500/70" />
+        </div>
         {header}
       </div>
 

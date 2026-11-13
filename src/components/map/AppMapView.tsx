@@ -108,7 +108,9 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   const responderMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const hqMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const programmaticMoveRef = useRef(false);
-  const userPanningRef = useRef(false);
+  const userPanActiveRef = useRef(false);
+  const panStartDispatchedRef = useRef(false);
+  const firstCameraSyncRef = useRef(true);
   const bottomPaddingRef = useRef(bottomPadding);
   bottomPaddingRef.current = bottomPadding;
   const onPanStartRef = useRef(onPanStart);
@@ -289,37 +291,53 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         setMapboxFallback(true);
       });
 
-      map.on('movestart', (e) => {
-        if (isUnmounted || !interactive) return;
-        if (Boolean(e.originalEvent) && !programmaticMoveRef.current) {
-          userPanningRef.current = true;
-          onPanStartRef.current?.();
-        }
+      map.on('dragstart', () => {
+        if (isUnmounted || !interactive || programmaticMoveRef.current) return;
+        userPanActiveRef.current = true;
+        panStartDispatchedRef.current = false;
       });
 
-      map.on('moveend', (e) => {
+      map.on('move', () => {
+        if (
+          isUnmounted ||
+          !interactive ||
+          programmaticMoveRef.current ||
+          !userPanActiveRef.current ||
+          panStartDispatchedRef.current
+        ) {
+          return;
+        }
+        panStartDispatchedRef.current = true;
+        onPanStartRef.current?.();
+      });
+
+      map.on('moveend', () => {
         if (isUnmounted) return;
         if (programmaticMoveRef.current) {
           programmaticMoveRef.current = false;
-          userPanningRef.current = false;
+          userPanActiveRef.current = false;
+          panStartDispatchedRef.current = false;
           return;
         }
-        const isUserMove = Boolean(e.originalEvent) || userPanningRef.current;
-        userPanningRef.current = false;
-        if (interactive && isUserMove) {
+        const hadUserPan = userPanActiveRef.current;
+        userPanActiveRef.current = false;
+        panStartDispatchedRef.current = false;
+        if (!interactive || !map) return;
+        if (onPanUpdateRef.current) {
+          const c = map.getCenter();
+          const clampedLat = Math.max(4.0, Math.min(7.2, c.lat));
+          const clampedLng = Math.max(115.0, Math.min(119.5, c.lng));
+          const coords = latLngToMapCoords(clampedLat, clampedLng);
+          onPanUpdateRef.current(
+            coords.mapX,
+            coords.mapY,
+            Number(clampedLat.toFixed(5)),
+            Number(clampedLng.toFixed(5))
+          );
+        }
+        if (hadUserPan) {
           onPanEndRef.current?.();
         }
-        if (!interactive || !map || !onPanUpdateRef.current) return;
-        const c = map.getCenter();
-        const clampedLat = Math.max(4.0, Math.min(7.2, c.lat));
-        const clampedLng = Math.max(115.0, Math.min(119.5, c.lng));
-        const coords = latLngToMapCoords(clampedLat, clampedLng);
-        onPanUpdateRef.current(
-          coords.mapX,
-          coords.mapY,
-          Number(clampedLat.toFixed(5)),
-          Number(clampedLng.toFixed(5))
-        );
       });
     } catch {
       setMapboxFallback(true);
@@ -368,31 +386,28 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   }, [isLight]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    try {
-      map.setPadding({ top: 0, right: 0, bottom: bottomPadding, left: 0 });
-    } catch {
-      // Ignore padding errors during teardown
+    if (firstCameraSyncRef.current) {
+      firstCameraSyncRef.current = false;
+      return;
     }
-  }, [bottomPadding]);
-
-  useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const targetZoom = toMapboxZoom(zoom);
+    const { pinLat: nextLat, pinLng: nextLng } = targetCoordsRef.current;
     programmaticMoveRef.current = true;
+    userPanActiveRef.current = false;
+    panStartDispatchedRef.current = false;
     try {
       if (flyToTrigger > 0) {
         map.flyTo({
-          center: [resolvedPinLng, resolvedPinLat],
+          center: [nextLng, nextLat],
           zoom: targetZoom,
           duration: 850,
           padding: { top: 0, right: 0, bottom: bottomPaddingRef.current, left: 0 },
         });
       } else {
         map.easeTo({
-          center: [resolvedPinLng, resolvedPinLat],
+          center: [nextLng, nextLat],
           zoom: targetZoom,
           duration: 280,
           padding: { top: 0, right: 0, bottom: bottomPaddingRef.current, left: 0 },
@@ -401,7 +416,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     } catch {
       programmaticMoveRef.current = false;
     }
-  }, [resolvedPinLat, resolvedPinLng, zoom, flyToTrigger]);
+  }, [zoom, flyToTrigger]);
 
   useEffect(() => {
     let frameId = 0;
@@ -535,8 +550,9 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   const handleFallbackPointerDown = (e: React.PointerEvent) => {
     if (!mapboxFallback || !interactive) return;
     draggingRef.current = true;
+    userPanActiveRef.current = true;
+    panStartDispatchedRef.current = false;
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
-    onPanStartRef.current?.();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const handleFallbackPointerMove = (e: React.PointerEvent) => {
@@ -544,6 +560,14 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
       return;
     const dx = e.clientX - lastPointerRef.current.x;
     const dy = e.clientY - lastPointerRef.current.y;
+    if (
+      userPanActiveRef.current &&
+      !panStartDispatchedRef.current &&
+      Math.abs(dx) + Math.abs(dy) > 1
+    ) {
+      panStartDispatchedRef.current = true;
+      onPanStartRef.current?.();
+    }
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
     const nextX = Math.max(40, Math.min(960, centerX - dx / zoom));
     const nextY = Math.max(40, Math.min(960, centerY - dy / zoom));
@@ -551,8 +575,13 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   };
   const handleFallbackPointerUp = () => {
     if (draggingRef.current) {
+      const hadPan = panStartDispatchedRef.current;
       draggingRef.current = false;
-      onPanEndRef.current?.();
+      userPanActiveRef.current = false;
+      panStartDispatchedRef.current = false;
+      if (hadPan) {
+        onPanEndRef.current?.();
+      }
     }
   };
 
