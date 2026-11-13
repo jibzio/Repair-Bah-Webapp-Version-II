@@ -869,6 +869,31 @@ function latLngToMapCoords(lat: number, lng: number) {
   return { mapX, mapY };
 }
 
+const ANY_UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function generateUuid(): string {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function isValidUuid(val: unknown): val is string {
+  return typeof val === 'string' && ANY_UUID_REGEX.test(val.trim());
+}
+
+function formatTicketCode(id: string): string {
+  return `RB-${id.slice(0, 4).toUpperCase()}`;
+}
+
 // ============================================================================
 // 3. STATE MANAGEMENT & REDUCER
 // ============================================================================
@@ -994,7 +1019,7 @@ const initialState: AppState = {
   hazardStrobe: false,
 
   rescueStage: 0,
-  activeJobId: 'RB-8821',
+  activeJobId: generateUuid(),
   selectedService: SERVICES[0],
   pinnedLocation: {
     lat: 5.9512,
@@ -1178,8 +1203,13 @@ function getInitialState(): AppState {
         ? saved.language
         : initialState.language;
 
+    const validActiveJobId = isValidUuid(saved.activeJobId)
+      ? saved.activeJobId
+      : generateUuid();
+
     return {
       ...initialState,
+      activeJobId: validActiveJobId,
       vehicles: validVehicles,
       activeVehicleId: validActiveVehicleId,
       vaultBalance: validBalance,
@@ -1336,7 +1366,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       }
       newEntries.push({
         id: `led-${Date.now()}-res`,
-        title: `Protected Escrow Hold (${state.activeJobId})`,
+        title: `Protected Escrow Hold (${formatTicketCode(state.activeJobId)})`,
         timestamp: 'Just now',
         amount: -needed,
         type: 'RESERVE',
@@ -1355,11 +1385,11 @@ function appReducer(state: AppState, action: AppAction): AppState {
       if (state.vaultStatus === 'DISBURSED') return state;
       const disburseEntry: LedgerEntry = {
         id: `led-${Date.now()}-dis`,
-        title: `Escrow Disbursed to Kolombong HQ (${state.activeJobId})`,
+        title: `Escrow Disbursed to Kolombong HQ (${formatTicketCode(state.activeJobId)})`,
         timestamp: 'Just now',
         amount: -action.payload.amount,
         type: 'DEBIT',
-        ref: `LHDN-${state.activeJobId}`,
+        ref: `LHDN-${formatTicketCode(state.activeJobId)}`,
       };
       return {
         ...state,
@@ -1390,7 +1420,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         rescueStage: 0,
-        activeJobId: `RB-${Math.floor(1000 + Math.random() * 9000)}`,
+        activeJobId: generateUuid(),
         responderClaimed: false,
         responderProgress: 0.08,
         slaSecondsRemaining: 15 * 60,
@@ -2413,7 +2443,7 @@ const CustomerSosScreen: React.FC = () => {
   const lhdnMeta = useMemo(
     () =>
       LhdnEInvoiceGenerator.buildMetadata(
-        state.activeJobId,
+        formatTicketCode(state.activeJobId),
         activeVehicle.plate,
         taxBreakdown.grandTotal
       ),
@@ -2474,8 +2504,9 @@ const CustomerSosScreen: React.FC = () => {
   };
 
   const handleDownloadBinaryPdf = () => {
+    const ticketCode = formatTicketCode(state.activeJobId);
     const blob = PdfInvoiceGenerator.generateBinaryPdfBlob({
-      invoiceNo: `INV-${state.activeJobId}`,
+      invoiceNo: `INV-${ticketCode}`,
       lhdnUuid: lhdnMeta.uuid,
       customerName: 'Ahmad Bin Kassim (Verified Member)',
       plate: activeVehicle.plate,
@@ -2487,7 +2518,7 @@ const CustomerSosScreen: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `RepairBah_LHDN_${state.activeJobId}.pdf`;
+    link.download = `RepairBah_LHDN_${ticketCode}.pdf`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2873,7 +2904,7 @@ const CustomerSosScreen: React.FC = () => {
                 quoted_price: state.selectedService.price,
               });
               notify(
-                `SOS Broadcasted (${state.activeJobId}) via Supabase Realtime`,
+                `SOS Broadcasted (${formatTicketCode(state.activeJobId)}) via Supabase Realtime`,
                 'success'
               );
             }}
@@ -2918,7 +2949,7 @@ const CustomerSosScreen: React.FC = () => {
               Alerting Sabah Patrol & Tow Units...
             </h3>
             <p className="text-xs text-gray-400 mt-1">
-              Job <span className="font-mono text-white">{state.activeJobId}</span>{' '}
+              Job <span className="font-mono text-white">{formatTicketCode(state.activeJobId)}</span>{' '}
               • {state.selectedService.nameEn} (RM {state.selectedService.price})
             </p>
             <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
@@ -3410,7 +3441,7 @@ const CustomerSosScreen: React.FC = () => {
           </div>
           <button
             onClick={() => {
-              const nonce = `NONCE-${state.activeJobId}-${Date.now()}`;
+              const nonce = `NONCE-${formatTicketCode(state.activeJobId)}-${Date.now()}`;
               dispatch({
                 type: 'LOCK_ESCROW',
                 payload: { amount: taxBreakdown.grandTotal, nonce },
@@ -3418,6 +3449,23 @@ const CustomerSosScreen: React.FC = () => {
               syncJobToSupabase({
                 status: 'in_progress',
                 quoted_price: taxBreakdown.grandTotal,
+              });
+              fetch(`${state.supabaseUrl}/rest/v1/vault_holds`, {
+                method: 'POST',
+                headers: {
+                  apikey: state.supabaseAnonKey,
+                  Authorization: `Bearer ${state.supabaseAnonKey}`,
+                  'Content-Type': 'application/json',
+                  Prefer: 'resolution=merge-duplicates',
+                },
+                body: JSON.stringify({
+                  job_id: state.activeJobId,
+                  customer_id: 'ahmad_sbh_8821',
+                  authorized_amount: taxBreakdown.grandTotal,
+                  vault_status: 'reserved',
+                }),
+              }).catch(() => {
+                // Non-blocking vault hold sync
               });
               notify(
                 `RM ${taxBreakdown.grandTotal.toFixed(
@@ -3674,7 +3722,7 @@ const CustomerSosScreen: React.FC = () => {
           </div>
           <h2 className="text-lg font-black">Rescue & Escrow Settled</h2>
           <p className="text-xs text-gray-400">
-            VaultStatus.DISBURSED • Job {state.activeJobId}
+            VaultStatus.DISBURSED • Job {formatTicketCode(state.activeJobId)}
           </p>
         </div>
 
@@ -5270,7 +5318,7 @@ const MechanicConsoleScreen: React.FC = () => {
       >
         <div className="flex items-center justify-between mb-2">
           <span className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-black">
-            ACTIVE SOS • {state.activeJobId}
+            ACTIVE SOS • {formatTicketCode(state.activeJobId)}
           </span>
           <span className="text-xs font-mono text-gray-400">
             Stage {state.rescueStage}/10
@@ -6046,6 +6094,7 @@ export default function App() {
       localStorage.setItem(
         PERSISTED_STATE_KEY,
         JSON.stringify({
+          activeJobId: state.activeJobId,
           vehicles: state.vehicles,
           activeVehicleId: state.activeVehicleId,
           vaultBalance: state.vaultBalance,
@@ -6059,6 +6108,7 @@ export default function App() {
       // Ignore storage quota errors
     }
   }, [
+    state.activeJobId,
     state.vehicles,
     state.activeVehicleId,
     state.vaultBalance,
