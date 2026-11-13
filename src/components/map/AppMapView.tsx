@@ -2,10 +2,55 @@ import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Minus, Plus } from 'lucide-react';
-import { getMapboxAccessToken } from '../../config/env';
+import { getMapboxAccessToken, MAPBOX_DEMO_TOKEN } from '../../config/env';
 import { KOLOMBONG_HQ_LAT, KOLOMBONG_HQ_LNG } from '../../constants/sabahData';
 import { latLngToMapCoords, mapCoordsToLatLng } from '../../engines/domainEngines';
 import { RescueStage } from '../../types/repairbah';
+
+function resolveMapStyle(isLight: boolean): string | mapboxgl.StyleSpecification {
+  const token = getMapboxAccessToken();
+  const hasRealToken =
+    Boolean(token) &&
+    token !== MAPBOX_DEMO_TOKEN &&
+    !token.includes('demo_sabah_kk');
+
+  if (hasRealToken) {
+    return isLight
+      ? 'mapbox://styles/mapbox/navigation-day-v1'
+      : 'mapbox://styles/mapbox/navigation-night-v1';
+  }
+
+  return {
+    version: 8,
+    sources: {
+      'sabah-basemap': {
+        type: 'raster',
+        tiles: [
+          isLight
+            ? 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+            : 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        ],
+        tileSize: 256,
+      },
+    },
+    layers: [
+      {
+        id: 'sabah-bg',
+        type: 'background',
+        paint: {
+          'background-color': isLight ? '#E2E8F0' : '#090D14',
+        },
+      },
+      {
+        id: 'sabah-tiles',
+        type: 'raster',
+        source: 'sabah-basemap',
+        minzoom: 0,
+        maxzoom: 20,
+      },
+    ],
+  };
+}
 
 export interface AppMapViewProps {
   centerX: number;
@@ -86,6 +131,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   });
   const [styleLoaded, setStyleLoaded] = useState(false);
   const [mapboxFallback, setMapboxFallback] = useState(false);
+  const lastAppliedIsLightRef = useRef(isLight);
 
   const toMapboxZoom = (z: number) =>
     Math.max(10.5, Math.min(18, 12.2 + (z - 0.85) * 2.2));
@@ -94,15 +140,15 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     const container = mapContainerRef.current;
     if (!container) return;
 
+    let isUnmounted = false;
     mapboxgl.accessToken = getMapboxAccessToken();
+    lastAppliedIsLightRef.current = isLight;
 
     let map: mapboxgl.Map | null = null;
     try {
       map = new mapboxgl.Map({
         container,
-        style: isLight
-          ? 'mapbox://styles/mapbox/navigation-day-v1'
-          : 'mapbox://styles/mapbox/navigation-night-v1',
+        style: resolveMapStyle(isLight),
         center: [resolvedPinLng, resolvedPinLat],
         zoom: toMapboxZoom(zoom),
         interactive,
@@ -138,53 +184,63 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
       responderMarkerRef.current = respMarker;
 
       const ensureRouteLayer = () => {
-        if (!map || !map.isStyleLoaded()) return;
-        if (!map.getSource('rescue-route')) {
-          map.addSource('rescue-route', {
-            type: 'geojson',
-            data: {
-              type: 'Feature',
-              properties: {},
-              geometry: {
-                type: 'LineString',
-                coordinates: [
-                  [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
-                  [resolvedPinLng, resolvedPinLat],
-                ],
-              },
-            },
-          });
+        if (isUnmounted || !map || mapRef.current !== map || !map.isStyleLoaded()) {
+          return;
         }
-        if (!map.getLayer('rescue-route-line')) {
-          map.addLayer({
-            id: 'rescue-route-line',
-            type: 'line',
-            source: 'rescue-route',
-            paint: {
-              'line-color': '#EF4444',
-              'line-width': 4,
-              'line-dasharray': [2, 2],
-            },
-          });
+        try {
+          if (!map.getSource('rescue-route')) {
+            map.addSource('rescue-route', {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                  type: 'LineString',
+                  coordinates: [
+                    [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                    [resolvedPinLng, resolvedPinLat],
+                  ],
+                },
+              },
+            });
+          }
+          if (!map.getLayer('rescue-route-line')) {
+            map.addLayer({
+              id: 'rescue-route-line',
+              type: 'line',
+              source: 'rescue-route',
+              paint: {
+                'line-color': '#EF4444',
+                'line-width': 4,
+                'line-dasharray': [2, 2],
+              },
+            });
+          }
+        } catch {
+          // Ignore transient style-switching errors
         }
       };
 
       map.on('load', () => {
+        if (isUnmounted || mapRef.current !== map) return;
         setStyleLoaded(true);
         setMapboxFallback(false);
         ensureRouteLayer();
       });
 
       map.on('style.load', () => {
+        if (isUnmounted || mapRef.current !== map) return;
         setStyleLoaded(true);
         ensureRouteLayer();
       });
 
       map.on('error', () => {
+        if (isUnmounted) return;
         setMapboxFallback(true);
       });
 
       map.on('moveend', () => {
+        if (isUnmounted) return;
         if (programmaticMoveRef.current) {
           programmaticMoveRef.current = false;
           return;
@@ -201,10 +257,15 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     }
 
     return () => {
+      isUnmounted = true;
       pinMarkerRef.current?.remove();
       responderMarkerRef.current?.remove();
       hqMarkerRef.current?.remove();
-      map?.remove();
+      try {
+        map?.remove();
+      } catch {
+        // Ignore teardown race in WebGL/Mapbox
+      }
       mapRef.current = null;
       pinMarkerRef.current = null;
       responderMarkerRef.current = null;
@@ -214,16 +275,26 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    try {
-      setStyleLoaded(false);
-      map.setStyle(
-        isLight
-          ? 'mapbox://styles/mapbox/navigation-day-v1'
-          : 'mapbox://styles/mapbox/navigation-night-v1'
-      );
-    } catch {
-      setMapboxFallback(true);
+    if (!map || lastAppliedIsLightRef.current === isLight) return;
+    lastAppliedIsLightRef.current = isLight;
+
+    const applyStyle = () => {
+      if (!mapRef.current || mapRef.current !== map) return;
+      try {
+        setStyleLoaded(false);
+        map.setStyle(resolveMapStyle(isLight));
+      } catch {
+        setMapboxFallback(true);
+      }
+    };
+
+    if (map.isStyleLoaded()) {
+      applyStyle();
+    } else {
+      map.once('style.load', applyStyle);
+      return () => {
+        map.off('style.load', applyStyle);
+      };
     }
   }, [isLight]);
 
@@ -281,27 +352,33 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         } else if (!targets.responderVisible && isAttached) {
           respMarker.remove();
         }
-        const routeSrc = map.getSource('rescue-route') as
-          | mapboxgl.GeoJSONSource
-          | undefined;
-        if (routeSrc && styleLoaded) {
-          routeSrc.setData({
-            type: 'Feature',
-            properties: {},
-            geometry: {
-              type: 'LineString',
-              coordinates: targets.responderVisible
-                ? [
-                    [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
-                    [curLng, curLat],
-                    [targets.pinLng, targets.pinLat],
-                  ]
-                : [
-                    [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
-                    [targets.pinLng, targets.pinLat],
-                  ],
-            },
-          });
+        if (styleLoaded && map.isStyleLoaded()) {
+          try {
+            const routeSrc = map.getSource('rescue-route') as
+              | mapboxgl.GeoJSONSource
+              | undefined;
+            if (routeSrc) {
+              routeSrc.setData({
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                  type: 'LineString',
+                  coordinates: targets.responderVisible
+                    ? [
+                        [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                        [curLng, curLat],
+                        [targets.pinLng, targets.pinLat],
+                      ]
+                    : [
+                        [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                        [targets.pinLng, targets.pinLat],
+                      ],
+                },
+              });
+            }
+          } catch {
+            // Ignore transient style updates
+          }
         }
       }
 
