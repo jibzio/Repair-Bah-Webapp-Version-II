@@ -1029,6 +1029,20 @@ export const AppSettingsScreen: React.FC = () => {
   const { state, dispatch, notify } = useApp();
   const isLight = state.displayMode === 'sunlight';
   const [geminiKeyInput, setGeminiKeyInput] = useState(state.geminiApiKey);
+  const [versionTapCount, setVersionTapCount] = useState(0);
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [adminPinInput, setAdminPinInput] = useState('');
+  const [adminPinVerified, setAdminPinVerified] = useState(state.demoMode);
+
+  const handleVersionTap = () => {
+    if (adminUnlocked) return;
+    const next = versionTapCount + 1;
+    setVersionTapCount(next);
+    if (next >= 7) {
+      setAdminUnlocked(true);
+      notify('Admin Demo Mode controls unlocked', 'info');
+    }
+  };
 
   return (
     <div className="flex-1 px-4 pt-3 pb-24 overflow-y-auto">
@@ -1181,6 +1195,89 @@ export const AppSettingsScreen: React.FC = () => {
               Save
             </button>
           </div>
+        </div>
+
+        {(adminUnlocked || state.demoMode) && (
+          <div
+            className={`rounded-2xl border p-4 space-y-3 ${
+              isLight
+                ? 'bg-amber-50 border-amber-300 text-slate-900'
+                : 'bg-[#181C24] border-amber-500/40 text-white'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                  Admin Demo Mode
+                </div>
+                <div className="text-[11px] text-gray-400">
+                  Shows 1-tap SOS, claim & arrival simulation controls
+                </div>
+              </div>
+              {(adminPinVerified || state.demoMode) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !state.demoMode;
+                    dispatch({ type: 'SET_DEMO_MODE', payload: next });
+                    notify(
+                      next
+                        ? 'Admin Demo Mode enabled'
+                        : 'Admin Demo Mode disabled (Production UI)',
+                      'info'
+                    );
+                  }}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-black ${
+                    state.demoMode
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-[#242A36] text-gray-200 border border-gray-700'
+                  }`}
+                >
+                  {state.demoMode ? 'ON' : 'OFF'}
+                </button>
+              )}
+            </div>
+
+            {!adminPinVerified && !state.demoMode && (
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={adminPinInput}
+                  onChange={(e) => setAdminPinInput(e.target.value)}
+                  placeholder="Enter Admin PIN"
+                  className="flex-1 px-3 py-2 rounded-xl bg-black/25 border border-gray-700 text-xs font-mono outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (adminPinInput.trim() === '4402') {
+                      setAdminPinVerified(true);
+                      setAdminPinInput('');
+                      dispatch({ type: 'SET_DEMO_MODE', payload: true });
+                      notify('Admin Demo Mode enabled', 'success');
+                    } else {
+                      notify('Invalid Admin PIN', 'error');
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-500 text-black font-black text-xs"
+                >
+                  Unlock
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="pt-4 pb-2 text-center">
+          <button
+            type="button"
+            onClick={handleVersionTap}
+            className="text-[11px] font-mono text-gray-500 hover:text-gray-400 select-none"
+          >
+            RepairBah Sabah Live • v2.4
+          </button>
         </div>
       </div>
     </div>

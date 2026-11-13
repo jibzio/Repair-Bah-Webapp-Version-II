@@ -47,8 +47,15 @@ export const Sos3DButton: React.FC<Sos3DButtonProps> = ({
     }
   }, []);
 
-  const startHold = (e: React.PointerEvent) => {
+  const startHold = (e: React.PointerEvent<HTMLDivElement>) => {
     if (disabled) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const hitRadius = rect.width / 2;
+    if (Math.hypot(e.clientX - centerX, e.clientY - centerY) > hitRadius) {
+      return;
+    }
     e.preventDefault();
     if (triggeredRef.current) return;
     setHolding(true);
@@ -86,25 +93,16 @@ export const Sos3DButton: React.FC<Sos3DButtonProps> = ({
 
   return (
     <div
-      onPointerDown={startHold}
-      onPointerUp={stopHold}
-      onPointerLeave={stopHold}
-      onPointerCancel={stopHold}
-      role="button"
-      tabIndex={0}
-      aria-label={ariaLabel || 'Hold 2.5 seconds for SOS Rescue'}
-      className={`relative ${
+      className={`relative pointer-events-none ${
         isLarge ? 'w-64 h-64' : 'w-44 h-44'
-      } rounded-full flex items-center justify-center select-none touch-none cursor-pointer transition-transform duration-150 ${
-        holding ? 'scale-95' : 'scale-100'
-      }`}
+      } rounded-full flex items-center justify-center select-none`}
     >
-      <div className="absolute inset-0 rounded-full bg-red-600/10 border border-red-500/20 animate-ping [animation-duration:3s]" />
-      <div className="absolute inset-3 rounded-full bg-red-950/40 border border-red-500/30" />
-      <div className="absolute inset-6 rounded-full bg-red-950/60 border border-red-500/40" />
+      <div className="pointer-events-none absolute inset-0 rounded-full bg-red-600/10 border border-red-500/20 animate-ping [animation-duration:3s]" />
+      <div className="pointer-events-none absolute inset-3 rounded-full bg-red-950/40 border border-red-500/30" />
+      <div className="pointer-events-none absolute inset-6 rounded-full bg-red-950/60 border border-red-500/40" />
 
       <svg
-        className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none"
+        className="pointer-events-none absolute inset-0 w-full h-full -rotate-90"
         viewBox="0 0 240 240"
       >
         <circle
@@ -129,29 +127,39 @@ export const Sos3DButton: React.FC<Sos3DButtonProps> = ({
       </svg>
 
       <div
-        className={`relative ${
+        onPointerDown={startHold}
+        onPointerUp={stopHold}
+        onPointerLeave={stopHold}
+        onPointerCancel={stopHold}
+        role="button"
+        tabIndex={0}
+        aria-label={ariaLabel || 'Hold 2.5 seconds for SOS Rescue'}
+        className={`relative pointer-events-auto ${
           isLarge ? 'w-44 h-44' : 'w-32 h-32'
-        } rounded-full flex flex-col items-center justify-center text-white shadow-[0_0_55px_rgba(220,38,38,0.65)] border-2 border-red-400/50`}
+        } rounded-full flex flex-col items-center justify-center text-white shadow-[0_0_55px_rgba(220,38,38,0.65)] border-2 border-red-400/50 select-none touch-none cursor-pointer transition-transform duration-150 ${
+          holding ? 'scale-95' : 'scale-100'
+        }`}
         style={{
           background:
             'radial-gradient(circle at 35% 30%, #EF4444 0%, #DC2626 52%, #7F1D1D 100%)',
+          clipPath: 'circle(50% at 50% 50%)',
         }}
       >
-        <span className="text-[11px] font-extrabold tracking-[0.22em] text-red-100">
+        <span className="pointer-events-none text-[11px] font-extrabold tracking-[0.22em] text-red-100">
           {topLabel}
         </span>
         <span
-          className={`${
+          className={`pointer-events-none ${
             isLarge ? 'text-3xl' : 'text-2xl'
           } font-black tracking-tight my-0.5 drop-shadow`}
         >
           {centerLabel}
         </span>
-        <span className="text-[11px] font-extrabold tracking-[0.22em] text-red-100">
+        <span className="pointer-events-none text-[11px] font-extrabold tracking-[0.22em] text-red-100">
           {bottomLabel}
         </span>
         {holding && (
-          <span className="mt-1.5 text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded-full">
+          <span className="pointer-events-none mt-1.5 text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded-full">
             {Math.round(progress)}%
           </span>
         )}

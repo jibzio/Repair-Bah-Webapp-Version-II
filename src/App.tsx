@@ -51,13 +51,9 @@ export default function App() {
     []
   );
 
-  // Persist customer ecosystem & active rescueStage to localStorage
+  // Persist customer ecosystem, demoMode & active rescueStage to localStorage
   useEffect(() => {
     try {
-      const stageToPersist =
-        state.rescueStage > 0
-          ? state.rescueStage
-          : state.resumableStage ?? 0;
       localStorage.setItem(
         PERSISTED_STATE_KEY,
         JSON.stringify({
@@ -68,7 +64,8 @@ export default function App() {
           ledger: state.ledger,
           displayMode: state.displayMode,
           language: state.language,
-          rescueStage: stageToPersist,
+          demoMode: state.demoMode,
+          rescueStage: state.rescueStage,
         })
       );
     } catch {
@@ -82,8 +79,8 @@ export default function App() {
     state.ledger,
     state.displayMode,
     state.language,
+    state.demoMode,
     state.rescueStage,
-    state.resumableStage,
   ]);
 
   // Sync URL hash safely

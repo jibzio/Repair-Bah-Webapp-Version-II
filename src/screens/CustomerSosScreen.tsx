@@ -70,7 +70,8 @@ const SosRadialButton: React.FC<{
   onTrigger: () => void;
   isLight: boolean;
   lang: Language;
-}> = ({ onTrigger, isLight, lang }) => {
+  demoMode: boolean;
+}> = ({ onTrigger, isLight, lang, demoMode }) => {
   const t = I18N[lang];
 
   return (
@@ -99,12 +100,14 @@ const SosRadialButton: React.FC<{
           {t.dispatchesUnits}
         </p>
 
-        <button
-          onClick={onTrigger}
-          className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[11px] font-bold bg-red-600/15 text-red-400 border border-red-500/30 hover:bg-red-600/25 transition-colors"
-        >
-          <Zap className="w-3 h-3" /> Quick-Trigger SOS (1-Tap Demo)
-        </button>
+        {demoMode && (
+          <button
+            onClick={onTrigger}
+            className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[11px] font-bold bg-red-600/15 text-red-400 border border-red-500/30 hover:bg-red-600/25 transition-colors"
+          >
+            <Zap className="w-3 h-3" /> Quick-Trigger SOS (1-Tap Demo)
+          </button>
+        )}
       </div>
     </div>
   );
@@ -543,7 +546,7 @@ export const CustomerSosScreen: React.FC = () => {
   if (state.rescueStage === 0) {
     return (
       <div className="flex-1 flex flex-col justify-between px-4 pt-3 pb-24 overflow-y-auto">
-        <header className="flex items-center justify-between gap-2">
+        <header className="relative z-30 flex items-center justify-between gap-2">
           <button
             onClick={() => dispatch({ type: 'SET_DRAWER', payload: true })}
             aria-label="Open menu"
@@ -578,81 +581,26 @@ export const CustomerSosScreen: React.FC = () => {
             </span>
           </button>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() =>
-                dispatch({ type: 'SET_HOTLINES_OPEN', payload: true })
-              }
-              title="Sabah Emergency Hotlines"
-              className={`px-2.5 py-2 rounded-full border text-[10px] font-black flex items-center gap-1 ${
-                isLight
-                  ? 'bg-red-50 border-red-200 text-red-700'
-                  : 'bg-red-950/60 border-red-500/40 text-red-300'
-              }`}
-            >
-              <Phone className="w-3 h-3" />
-              999
-            </button>
-            <button
-              onClick={() => dispatch({ type: 'TOGGLE_HAZARD' })}
-              className={`px-2.5 py-2 rounded-full border text-[10px] font-black flex items-center gap-1 transition-all ${
-                state.hazardStrobe
-                  ? 'bg-amber-500 border-amber-300 text-black animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.7)]'
-                  : isLight
-                  ? 'bg-white border-slate-300 text-slate-700'
-                  : 'bg-[#181C24] border-[#282C37] text-gray-400'
-              }`}
-            >
-              <AlertTriangle className="w-3 h-3" />
-              {state.hazardStrobe ? t.strobeOn : t.beaconOff}
-            </button>
-          </div>
+          <button
+            onClick={() =>
+              dispatch({ type: 'SET_HOTLINES_OPEN', payload: true })
+            }
+            title="Sabah Emergency Hotlines"
+            className={`px-3 py-2 rounded-full border text-[10px] font-black flex items-center gap-1 ${
+              isLight
+                ? 'bg-red-50 border-red-200 text-red-700'
+                : 'bg-red-950/60 border-red-500/40 text-red-300'
+            }`}
+          >
+            <Phone className="w-3 h-3" />
+            999
+          </button>
         </header>
-
-        {state.resumableStage !== null &&
-          state.resumableStage >= 1 &&
-          state.resumableStage <= 9 && (
-            <div
-              className={`mt-2 mb-1 px-3 py-2 rounded-full border flex items-center justify-between gap-2 shadow-sm ${
-                isLight
-                  ? 'bg-amber-50 border-amber-300 text-amber-900'
-                  : 'bg-amber-950/50 border-amber-500/40 text-amber-200'
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  dispatch({ type: 'RESUME_SAVED_RESCUE' });
-                  notify(
-                    `Resumed active rescue at Stage ${state.resumableStage}/10`,
-                    'info'
-                  );
-                }}
-                className="flex-1 flex items-center gap-2 text-left text-xs font-bold min-w-0"
-              >
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                <span className="truncate">
-                  Resume Active Rescue (Stage {state.resumableStage}/10)
-                </span>
-                <ArrowRight className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-              </button>
-              <button
-                type="button"
-                aria-label="Dismiss active rescue"
-                onClick={() => {
-                  dispatch({ type: 'DISMISS_RESUMABLE_RESCUE' });
-                  notify('Cleared previous rescue session', 'info');
-                }}
-                className="p-1 rounded-full hover:bg-black/20 text-amber-400 shrink-0"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
 
         <SosRadialButton
           isLight={isLight}
           lang={state.language}
+          demoMode={state.demoMode}
           onTrigger={() => {
             dispatch({ type: 'SET_RESCUE_STAGE', payload: 1 });
             notify('SOS Armed — Confirm Sabah Breakdown Location', 'warning');
@@ -1261,19 +1209,21 @@ export const CustomerSosScreen: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={() => {
-            dispatch({ type: 'CLAIM_RESCUE_JOB' });
-            notify(
-              'Foreman Roy (KK-204) claimed your SOS request!',
-              'success'
-            );
-          }}
-          className="w-full py-4 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2"
-        >
-          <span>Continue / Simulate Responder Claim</span>
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        {state.demoMode && (
+          <button
+            onClick={() => {
+              dispatch({ type: 'CLAIM_RESCUE_JOB' });
+              notify(
+                'Foreman Roy (KK-204) claimed your SOS request!',
+                'success'
+              );
+            }}
+            className="w-full py-4 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-sm shadow-lg flex items-center justify-center gap-2"
+          >
+            <span>Continue / Simulate Responder Claim</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        )}
       </div>
     );
   }
@@ -1407,7 +1357,7 @@ export const CustomerSosScreen: React.FC = () => {
           </div>
 
           <div className="space-y-2">
-            {!withinGeofence && (
+            {state.demoMode && !withinGeofence && (
               <button
                 onClick={() => {
                   dispatch({ type: 'SET_RESPONDER_PROGRESS', payload: 1 });
@@ -1426,7 +1376,9 @@ export const CustomerSosScreen: React.FC = () => {
               onClick={() => {
                 if (!withinGeofence) {
                   notify(
-                    `Geofence Guard: Responder is ${distanceMeters}m away (must be <= 150m). Tap "Simulate Arrival (< 150m)" first.`,
+                    state.demoMode
+                      ? `Geofence Guard: Responder is ${distanceMeters}m away (must be <= 150m). Tap "Simulate Arrival (< 150m)" first.`
+                      : `Geofence Guard: Responder is ${distanceMeters}m away (PIN unlocks within 150m).`,
                     'warning'
                   );
                   return;
@@ -1456,7 +1408,9 @@ export const CustomerSosScreen: React.FC = () => {
     const handleDigit = (d: string) => {
       if (!withinGeofence) {
         notify(
-          `Geofence Guard: Responder is ${distanceMeters}m away. Simulate Arrival (< 150m) first.`,
+          state.demoMode
+            ? `Geofence Guard: Responder is ${distanceMeters}m away. Simulate Arrival (< 150m) first.`
+            : `Geofence Guard: Responder is ${distanceMeters}m away (PIN unlocks within 150m).`,
           'warning'
         );
         return;
@@ -1505,18 +1459,20 @@ export const CustomerSosScreen: React.FC = () => {
                   Haversine Guard Active: Unit is {distanceMeters}m away (&gt;
                   150m).
                 </p>
-                <button
-                  onClick={() => {
-                    dispatch({ type: 'SET_RESPONDER_PROGRESS', payload: 1 });
-                    notify(
-                      'Responder entered 150m geofence — PIN unlocked!',
-                      'success'
-                    );
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold"
-                >
-                  Simulate Arrival (&lt; 150m)
-                </button>
+                {state.demoMode && (
+                  <button
+                    onClick={() => {
+                      dispatch({ type: 'SET_RESPONDER_PROGRESS', payload: 1 });
+                      notify(
+                        'Responder entered 150m geofence — PIN unlocked!',
+                        'success'
+                      );
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold"
+                  >
+                    Simulate Arrival (&lt; 150m)
+                  </button>
+                )}
               </div>
             )}
             <p className="text-xs text-gray-400">
@@ -1548,7 +1504,9 @@ export const CustomerSosScreen: React.FC = () => {
               onClick={() => {
                 if (!withinGeofence) {
                   notify(
-                    `Geofence Guard: Responder is ${distanceMeters}m away. Tap "Simulate Arrival (< 150m)" first.`,
+                    state.demoMode
+                      ? `Geofence Guard: Responder is ${distanceMeters}m away. Tap "Simulate Arrival (< 150m)" first.`
+                      : `Geofence Guard: Responder is ${distanceMeters}m away (PIN unlocks within 150m).`,
                     'warning'
                   );
                   return;

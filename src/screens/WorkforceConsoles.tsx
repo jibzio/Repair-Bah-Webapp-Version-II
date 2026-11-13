@@ -150,9 +150,14 @@ export const ConsolePinGateModal: React.FC = () => {
         <h3 className="text-base font-black">ConsolePinGate</h3>
         <p className="text-xs text-gray-400 mt-1">
           Enter Workforce PIN for{' '}
-          <span className="text-white font-bold">{targetName}</span> (Android:{' '}
-          <span className="font-mono text-emerald-400">4402</span> • Demo:{' '}
-          <span className="font-mono text-emerald-400">1234</span>)
+          <span className="text-white font-bold">{targetName}</span>
+          {state.demoMode && (
+            <>
+              {' '}
+              (PIN: <span className="font-mono text-emerald-400">4402</span> •
+              Demo: <span className="font-mono text-emerald-400">1234</span>)
+            </>
+          )}
         </p>
 
         <div className="flex justify-center gap-3 my-5">
@@ -181,16 +186,20 @@ export const ConsolePinGateModal: React.FC = () => {
               {d}
             </button>
           ))}
-          <button
-            disabled={verifying}
-            onClick={() => {
-              setPin('1234');
-              void verifyWorkforcePin('1234');
-            }}
-            className="py-3 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 font-bold text-[11px] disabled:opacity-60"
-          >
-            {verifying ? 'Checking...' : 'Auto 1234'}
-          </button>
+          {state.demoMode ? (
+            <button
+              disabled={verifying}
+              onClick={() => {
+                setPin('1234');
+                void verifyWorkforcePin('1234');
+              }}
+              className="py-3 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 font-bold text-[11px] disabled:opacity-60"
+            >
+              {verifying ? 'Checking...' : 'Auto 1234'}
+            </button>
+          ) : (
+            <div />
+          )}
           <button
             disabled={verifying}
             onClick={() => pressDigit('0')}

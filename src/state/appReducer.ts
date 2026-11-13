@@ -27,9 +27,9 @@ export function buildInitialState(): AppState {
     displayMode: 'obsidian',
     language: 'EN',
     hazardStrobe: false,
+    demoMode: false,
 
     rescueStage: 0,
-    resumableStage: null,
     activeJobId: generateUuid(),
     selectedService: SERVICES[0],
     pinnedLocation: {
@@ -183,19 +183,19 @@ export function buildInitialState(): AppState {
 
 export function getInitialState(): AppState {
   const baseState = buildInitialState();
+  const urlDemo =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('demo') === '1';
+
   try {
     const raw =
       typeof localStorage !== 'undefined'
         ? localStorage.getItem(PERSISTED_STATE_KEY)
         : null;
-    if (!raw) return baseState;
+    if (!raw) {
+      return urlDemo ? { ...baseState, demoMode: true } : baseState;
+    }
     const saved = JSON.parse(raw) as Partial<AppState>;
-    const validStage =
-      typeof saved.rescueStage === 'number' &&
-      saved.rescueStage >= 0 &&
-      saved.rescueStage <= 10
-        ? (saved.rescueStage as RescueStage)
-        : baseState.rescueStage;
     const validVehicles =
       Array.isArray(saved.vehicles) && saved.vehicles.length > 0
         ? saved.vehicles
@@ -220,8 +220,13 @@ export function getInitialState(): AppState {
       saved.language === 'BM' || saved.language === 'EN'
         ? saved.language
         : baseState.language;
+    const validDemoMode = urlDemo || saved.demoMode === true;
 
-    if (validStage === 10 && typeof localStorage !== 'undefined') {
+    if (
+      typeof saved.rescueStage === 'number' &&
+      saved.rescueStage !== 0 &&
+      typeof localStorage !== 'undefined'
+    ) {
       try {
         localStorage.setItem(
           PERSISTED_STATE_KEY,
@@ -232,32 +237,20 @@ export function getInitialState(): AppState {
       }
     }
 
-    const hasResumable = validStage >= 1 && validStage <= 9;
-    const validActiveJobId =
-      hasResumable && isValidUuid(saved.activeJobId)
-        ? saved.activeJobId
-        : generateUuid();
-
     return {
       ...baseState,
-      activeJobId: validActiveJobId,
+      activeJobId: generateUuid(),
       vehicles: validVehicles,
       activeVehicleId: validActiveVehicleId,
       vaultBalance: validBalance,
       ledger: validLedger,
       displayMode: validDisplayMode,
       language: validLanguage,
+      demoMode: validDemoMode,
       rescueStage: 0,
-      resumableStage: hasResumable ? validStage : null,
-      responderClaimed:
-        hasResumable && validStage >= 3 ? true : baseState.responderClaimed,
-      arrivalPinVerified:
-        hasResumable && validStage >= 5 ? true : baseState.arrivalPinVerified,
-      vaultStatus:
-        hasResumable && validStage >= 7 ? 'RESERVED' : baseState.vaultStatus,
     };
   } catch {
-    return baseState;
+    return urlDemo ? { ...baseState, demoMode: true } : baseState;
   }
 }
 
@@ -295,34 +288,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, language: state.language === 'EN' ? 'BM' : 'EN' };
     case 'TOGGLE_HAZARD':
       return { ...state, hazardStrobe: !state.hazardStrobe };
+    case 'SET_DEMO_MODE':
+      return { ...state, demoMode: action.payload };
     case 'SET_RESCUE_STAGE':
       return {
         ...state,
         rescueStage: action.payload,
-        resumableStage:
-          action.payload > 0 ? null : state.resumableStage,
         screen: 'sos',
-      };
-    case 'RESUME_SAVED_RESCUE':
-      if (!state.resumableStage) return state;
-      return {
-        ...state,
-        rescueStage: state.resumableStage,
-        resumableStage: null,
-        screen: 'sos',
-      };
-    case 'DISMISS_RESUMABLE_RESCUE':
-      return {
-        ...state,
-        resumableStage: null,
-        activeJobId: generateUuid(),
-        responderClaimed: false,
-        responderProgress: 0.08,
-        responderLocation: null,
-        slaSecondsRemaining: 15 * 60,
-        dispatchWarning: 'NONE',
-        arrivalPinVerified: false,
-        vaultStatus: 'IDLE',
       };
     case 'SELECT_SERVICE': {
       const svc = action.payload;
@@ -483,7 +455,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         rescueStage: 0,
-        resumableStage: null,
         activeJobId: generateUuid(),
         responderClaimed: false,
         responderProgress: 0.08,

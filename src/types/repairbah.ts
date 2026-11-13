@@ -150,10 +150,10 @@ export interface AppState {
   displayMode: DisplayMode;
   language: Language;
   hazardStrobe: boolean;
+  demoMode: boolean;
 
   // Rescue 10-Stage FSM
   rescueStage: RescueStage;
-  resumableStage: RescueStage | null;
   activeJobId: string;
   selectedService: ServiceOption;
   pinnedLocation: PinnedLocation;
@@ -204,9 +204,8 @@ export type AppAction =
   | { type: 'TOGGLE_DISPLAY_MODE' }
   | { type: 'TOGGLE_LANGUAGE' }
   | { type: 'TOGGLE_HAZARD' }
+  | { type: 'SET_DEMO_MODE'; payload: boolean }
   | { type: 'SET_RESCUE_STAGE'; payload: RescueStage }
-  | { type: 'RESUME_SAVED_RESCUE' }
-  | { type: 'DISMISS_RESUMABLE_RESCUE' }
   | { type: 'SELECT_SERVICE'; payload: ServiceOption }
   | {
       type: 'UPDATE_PIN_LOCATION';
