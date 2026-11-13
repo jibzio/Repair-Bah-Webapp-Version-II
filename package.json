@@ -4,9 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "NODE_ENV=development tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --packages=external --outfile=server.js",
-    "prestart": "node -e \"import('fs').then(fs => { if (!fs.existsSync('server.js') || !fs.existsSync('dist/index.html')) process.exit(1); })\" || npm run build",
     "start": "node server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

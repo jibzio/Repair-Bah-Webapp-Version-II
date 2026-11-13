@@ -1,12 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
+import fs from 'fs';
 import path from 'path';
-import { GoogleGenAI, Type } from '@google/genai';
-
-try {
-  await import('dotenv/config');
-} catch {
-  // Cloud Run injects secrets directly via process.env
-}
 
 const VALID_SERVICES = new Set([
   'patrol_tow',
@@ -82,7 +76,7 @@ function getValidWorkforcePins(): Set<string> {
 
 async function startServer() {
   const app = express();
-  const port = Number(process.env.PORT || 3000);
+  const port = Number(process.env.PORT) || 3000;
 
   app.set('trust proxy', 1);
 
@@ -148,6 +142,7 @@ async function startServer() {
         return;
       }
 
+      const { GoogleGenAI, Type } = await import('@google/genai');
       const ai = new GoogleGenAI({
         apiKey,
         httpOptions: {
@@ -207,19 +202,21 @@ async function startServer() {
     }
   });
 
-  if (process.env.NODE_ENV !== 'production') {
+  const distDir = path.resolve(process.cwd(), 'dist');
+  const hasBuiltFrontend = fs.existsSync(path.join(distDir, 'index.html'));
+
+  if (hasBuiltFrontend && process.env.NODE_ENV !== 'development') {
+    app.use(express.static(distDir));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
+  } else {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    const distDir = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distDir));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distDir, 'index.html'));
-    });
   }
 
   app.listen(port, '0.0.0.0', () => {
@@ -231,4 +228,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('[RepairBah FATAL]', err);
+  process.exit(1);
+});
