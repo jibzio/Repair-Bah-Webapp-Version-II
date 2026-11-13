@@ -5,7 +5,7 @@ import { Minus, Plus } from 'lucide-react';
 import { getMapboxAccessToken, MAPBOX_DEMO_TOKEN } from '../../config/env';
 import { KOLOMBONG_HQ_LAT, KOLOMBONG_HQ_LNG } from '../../constants/sabahData';
 import { latLngToMapCoords, mapCoordsToLatLng } from '../../engines/domainEngines';
-import { RescueStage } from '../../types/repairbah';
+import { LocationSource, RescueStage } from '../../types/repairbah';
 
 function resolveMapStyle(isLight: boolean): string | mapboxgl.StyleSpecification {
   const token = getMapboxAccessToken();
@@ -59,13 +59,19 @@ export interface AppMapViewProps {
   stage?: RescueStage;
   pinLat?: number;
   pinLng?: number;
+  locationSource?: LocationSource;
   responderLat?: number;
   responderLng?: number;
   interactive?: boolean;
   showResponder?: boolean;
   responderProgress?: number;
   flyToTrigger?: number;
-  onPanUpdate?: (newX: number, newY: number) => void;
+  onPanUpdate?: (
+    newX: number,
+    newY: number,
+    lat?: number,
+    lng?: number
+  ) => void;
   onZoomChange?: (newZoom: number) => void;
   isLight: boolean;
 }
@@ -77,6 +83,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
   stage,
   pinLat,
   pinLng,
+  locationSource,
   responderLat,
   responderLng,
   interactive = true,
@@ -89,7 +96,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const gpsMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const responderMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const hqMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const programmaticMoveRef = useRef(false);
@@ -112,6 +119,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     respLat: resolvedRespLat,
     respLng: resolvedRespLng,
     responderVisible: showResponder || (stage !== undefined && stage >= 3),
+    isGpsLocked: locationSource === 'gps',
   });
   targetCoordsRef.current = {
     pinLat: resolvedPinLat,
@@ -119,6 +127,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     respLat: resolvedRespLat,
     respLng: resolvedRespLng,
     responderVisible: showResponder || (stage !== undefined && stage >= 3),
+    isGpsLocked: locationSource === 'gps',
   };
 
   const interpRespRef = useRef({
@@ -164,11 +173,18 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         .setLngLat([KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT])
         .addTo(map);
 
-      const pinEl = document.createElement('div');
-      pinEl.className = 'w-3 h-3 rounded-full bg-red-500/80 ring-4 ring-red-500/25';
-      pinMarkerRef.current = new mapboxgl.Marker({ element: pinEl })
-        .setLngLat([resolvedPinLng, resolvedPinLat])
-        .addTo(map);
+      const gpsEl = document.createElement('div');
+      gpsEl.className = 'relative flex items-center justify-center pointer-events-none';
+      gpsEl.innerHTML =
+        '<span class="absolute w-7 h-7 rounded-full bg-blue-500/30 animate-ping"></span><span class="relative w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white shadow-[0_0_14px_rgba(59,130,246,0.9)]"></span>';
+      const gpsMarker = new mapboxgl.Marker({ element: gpsEl }).setLngLat([
+        resolvedPinLng,
+        resolvedPinLat,
+      ]);
+      if (targetCoordsRef.current.isGpsLocked) {
+        gpsMarker.addTo(map);
+      }
+      gpsMarkerRef.current = gpsMarker;
 
       const respEl = document.createElement('div');
       respEl.className = 'flex flex-col items-center pointer-events-none';
@@ -247,10 +263,15 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         }
         if (!interactive || !map || !onPanUpdateRef.current) return;
         const c = map.getCenter();
-        const clampedLat = Math.max(5.87, Math.min(6.09, c.lat));
-        const clampedLng = Math.max(116.01, Math.min(116.17, c.lng));
+        const clampedLat = Math.max(4.0, Math.min(7.2, c.lat));
+        const clampedLng = Math.max(115.0, Math.min(119.5, c.lng));
         const coords = latLngToMapCoords(clampedLat, clampedLng);
-        onPanUpdateRef.current(coords.mapX, coords.mapY);
+        onPanUpdateRef.current(
+          coords.mapX,
+          coords.mapY,
+          Number(clampedLat.toFixed(5)),
+          Number(clampedLng.toFixed(5))
+        );
       });
     } catch {
       setMapboxFallback(true);
@@ -258,7 +279,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
 
     return () => {
       isUnmounted = true;
-      pinMarkerRef.current?.remove();
+      gpsMarkerRef.current?.remove();
       responderMarkerRef.current?.remove();
       hqMarkerRef.current?.remove();
       try {
@@ -267,7 +288,7 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
         // Ignore teardown race in WebGL/Mapbox
       }
       mapRef.current = null;
-      pinMarkerRef.current = null;
+      gpsMarkerRef.current = null;
       responderMarkerRef.current = null;
       hqMarkerRef.current = null;
     };
@@ -340,9 +361,18 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
       const curLat = interpRespRef.current.lat;
       const curLng = interpRespRef.current.lng;
 
-      pinMarkerRef.current?.setLngLat([targets.pinLng, targets.pinLat]);
-
       const map = mapRef.current;
+      const gpsMarker = gpsMarkerRef.current;
+      if (map && gpsMarker) {
+        gpsMarker.setLngLat([targets.pinLng, targets.pinLat]);
+        const gpsAttached = Boolean(gpsMarker.getElement().parentElement);
+        if (targets.isGpsLocked && !gpsAttached) {
+          gpsMarker.addTo(map);
+        } else if (!targets.isGpsLocked && gpsAttached) {
+          gpsMarker.remove();
+        }
+      }
+
       const respMarker = responderMarkerRef.current;
       if (map && respMarker) {
         respMarker.setLngLat([curLng, curLat]);
@@ -407,8 +437,8 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
     const dx = e.clientX - lastPointerRef.current.x;
     const dy = e.clientY - lastPointerRef.current.y;
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
-    const nextX = Math.max(120, Math.min(880, centerX - dx / zoom));
-    const nextY = Math.max(80, Math.min(900, centerY - dy / zoom));
+    const nextX = Math.max(40, Math.min(960, centerX - dx / zoom));
+    const nextY = Math.max(40, Math.min(960, centerY - dy / zoom));
     onPanUpdate(nextX, nextY);
   };
   const handleFallbackPointerUp = () => {
@@ -478,6 +508,13 @@ export const AppMapView: React.FC<AppMapViewProps> = ({
           mapboxFallback ? 'opacity-20 pointer-events-none' : 'opacity-100'
         }`}
       />
+
+      {mapboxFallback && locationSource === 'gps' && (
+        <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center z-10">
+          <span className="absolute w-7 h-7 rounded-full bg-blue-500/30 animate-ping" />
+          <span className="relative w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white shadow-[0_0_14px_rgba(59,130,246,0.9)]" />
+        </div>
+      )}
 
       <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center z-10">
         <div className="relative flex flex-col items-center animate-bounce">

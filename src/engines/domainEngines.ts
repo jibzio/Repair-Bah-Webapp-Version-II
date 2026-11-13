@@ -163,19 +163,25 @@ export function haversineDistanceMeters(
 }
 
 export function latLngToMapCoords(lat: number, lng: number) {
+  const clampedLat = Math.max(4.0, Math.min(7.2, lat));
+  const clampedLng = Math.max(115.0, Math.min(119.5, lng));
   const mapY = Math.max(
-    80,
-    Math.min(900, Math.round(((6.09 - lat) / 0.22) * 1000))
+    40,
+    Math.min(960, Math.round(((7.2 - clampedLat) / 3.2) * 1000))
   );
   const mapX = Math.max(
-    120,
-    Math.min(880, Math.round(((lng - 116.01) / 0.16) * 1000))
+    40,
+    Math.min(960, Math.round(((clampedLng - 115.0) / 4.5) * 1000))
   );
   return { mapX, mapY };
 }
 
 export function mapCoordsToLatLng(mapX: number, mapY: number) {
-  const lat = Number((6.09 - (mapY / 1000) * 0.22).toFixed(4));
-  const lng = Number((116.01 + (mapX / 1000) * 0.16).toFixed(4));
+  const lat = Number(
+    Math.max(4.0, Math.min(7.2, 7.2 - (mapY / 1000) * 3.2)).toFixed(5)
+  );
+  const lng = Number(
+    Math.max(115.0, Math.min(119.5, 115.0 + (mapX / 1000) * 4.5)).toFixed(5)
+  );
   return { lat, lng };
 }

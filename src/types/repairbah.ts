@@ -132,6 +132,18 @@ export interface EmergencyRequestDto {
   quoted_price: number;
 }
 
+export type LocationSource = 'gps' | 'manual' | 'landmark' | 'search';
+
+export interface PinnedLocation {
+  lat: number;
+  lng: number;
+  address: string;
+  mapX: number;
+  mapY: number;
+  accuracyMeters?: number;
+  source?: LocationSource;
+}
+
 export interface AppState {
   screen: ScreenId;
   drawerOpen: boolean;
@@ -143,13 +155,7 @@ export interface AppState {
   rescueStage: RescueStage;
   activeJobId: string;
   selectedService: ServiceOption;
-  pinnedLocation: {
-    lat: number;
-    lng: number;
-    address: string;
-    mapX: number;
-    mapY: number;
-  };
+  pinnedLocation: PinnedLocation;
   responderClaimed: boolean;
   responderOnline: boolean;
   responderName: string;
@@ -200,13 +206,7 @@ export type AppAction =
   | { type: 'SELECT_SERVICE'; payload: ServiceOption }
   | {
       type: 'UPDATE_PIN_LOCATION';
-      payload: {
-        lat: number;
-        lng: number;
-        address: string;
-        mapX: number;
-        mapY: number;
-      };
+      payload: PinnedLocation;
     }
   | { type: 'CLAIM_RESCUE_JOB'; payload?: { responderName?: string } }
   | { type: 'TOGGLE_RESPONDER_ONLINE' }

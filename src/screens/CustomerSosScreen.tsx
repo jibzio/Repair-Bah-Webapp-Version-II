@@ -17,6 +17,7 @@ import {
   Crosshair,
   Download,
   ExternalLink,
+  Loader2,
   Lock,
   MapPin,
   Menu,
@@ -43,11 +44,18 @@ import {
 import { useApp } from '../context/AppContext';
 import {
   haversineDistanceMeters,
+  latLngToMapCoords,
   LhdnEInvoiceGenerator,
   MalaysianTaxEngine,
+  mapCoordsToLatLng,
   PdfInvoiceGenerator,
   SmsFallbackEncoder,
 } from '../engines/domainEngines';
+import {
+  acquireDeviceGpsLocation,
+  findNearestSabahLandmark,
+  reverseGeocodeSabah,
+} from '../services/locationService';
 import {
   formatTicketCode,
   Language,
@@ -256,15 +264,127 @@ export const CustomerSosScreen: React.FC = () => {
     { label: string; lat: number; lng: number }[]
   >([]);
   const [enteredPin, setEnteredPin] = useState('');
+  const [isLocating, setIsLocating] = useState(false);
+  const geoRequestIdRef = useRef(0);
+  const geoAbortRef = useRef<AbortController | null>(null);
+  const autoGpsAttemptedRef = useRef(false);
   const sigCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingSig = useRef(false);
 
+  const handleGpsLocate = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const requestId = ++geoRequestIdRef.current;
+      geoAbortRef.current?.abort();
+      const abortController = new AbortController();
+      geoAbortRef.current = abortController;
+
+      setIsLocating(true);
+      try {
+        const { lat, lng, accuracyMeters } = await acquireDeviceGpsLocation();
+        if (requestId !== geoRequestIdRef.current) return;
+
+        const coords = latLngToMapCoords(lat, lng);
+        const initialAddress = `Pinned: ${lat.toFixed(4)}, ${lng.toFixed(
+          4
+        )} (Locating street...)`;
+
+        setAddressQuery(initialAddress);
+        setShowSuggestions(false);
+        setMapZoom(1.65);
+        setFlyTrigger((c) => c + 1);
+        dispatch({
+          type: 'UPDATE_PIN_LOCATION',
+          payload: {
+            lat: Number(lat.toFixed(5)),
+            lng: Number(lng.toFixed(5)),
+            address: initialAddress,
+            mapX: coords.mapX,
+            mapY: coords.mapY,
+            accuracyMeters,
+            source: 'gps',
+          },
+        });
+
+        const resolvedAddress = await reverseGeocodeSabah(
+          lat,
+          lng,
+          abortController.signal
+        );
+        if (requestId !== geoRequestIdRef.current) return;
+
+        setAddressQuery(resolvedAddress);
+        dispatch({
+          type: 'UPDATE_PIN_LOCATION',
+          payload: {
+            lat: Number(lat.toFixed(5)),
+            lng: Number(lng.toFixed(5)),
+            address: resolvedAddress,
+            mapX: coords.mapX,
+            mapY: coords.mapY,
+            accuracyMeters,
+            source: 'gps',
+          },
+        });
+
+        if (!options?.silent) {
+          notify(
+            `GPS Locked (±${accuracyMeters}m): ${resolvedAddress}`,
+            'success'
+          );
+        }
+      } catch (err) {
+        if (requestId !== geoRequestIdRef.current) return;
+        if (!options?.silent) {
+          const message =
+            err instanceof Error
+              ? err.message
+              : 'Unable to acquire GPS fix. Drag the map pin instead.';
+          notify(message, 'warning');
+        }
+      } finally {
+        if (requestId === geoRequestIdRef.current) {
+          setIsLocating(false);
+        }
+      }
+    },
+    [dispatch, notify]
+  );
+
   useEffect(() => {
+    return () => {
+      geoAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (state.rescueStage === 0) {
+      autoGpsAttemptedRef.current = false;
+      return;
+    }
     if (state.rescueStage === 1) {
       setFlyTrigger((c) => c + 1);
       setAddressQuery(state.pinnedLocation.address);
+      if (!autoGpsAttemptedRef.current) {
+        autoGpsAttemptedRef.current = true;
+        if (
+          typeof navigator !== 'undefined' &&
+          'permissions' in navigator &&
+          typeof navigator.permissions?.query === 'function'
+        ) {
+          navigator.permissions
+            .query({ name: 'geolocation' as PermissionName })
+            .then((perm) => {
+              if (perm.state === 'granted') {
+                void handleGpsLocate({ silent: true });
+              }
+            })
+            .catch(() => {
+              // Permissions API unsupported in this browser
+            });
+        }
+      }
     }
-  }, [state.rescueStage]);
+  }, [state.rescueStage, handleGpsLocate]);
 
   useEffect(() => {
     if (state.rescueStage !== 3) return;
@@ -332,19 +452,23 @@ export const CustomerSosScreen: React.FC = () => {
     };
   }, [addressQuery, showSuggestions]);
 
-  const handleMapPanUpdate = (newX: number, newY: number) => {
-    const lat = Number((6.09 - (newY / 1000) * 0.22).toFixed(4));
-    const lng = Number((116.01 + (newX / 1000) * 0.16).toFixed(4));
-    let nearest = SABAH_LANDMARKS[0];
-    let bestDist = Infinity;
-    for (const lm of SABAH_LANDMARKS) {
-      const d = Math.hypot(lm.mapX - newX, lm.mapY - newY);
-      if (d < bestDist) {
-        bestDist = d;
-        nearest = lm;
-      }
-    }
-    const formatted = `Pinned: ${lat}, ${lng} (${nearest.name})`;
+  const handleMapPanUpdate = (
+    newX: number,
+    newY: number,
+    exactLat?: number,
+    exactLng?: number
+  ) => {
+    ++geoRequestIdRef.current;
+    geoAbortRef.current?.abort();
+    setIsLocating(false);
+
+    const fallback = mapCoordsToLatLng(newX, newY);
+    const lat = Number((exactLat ?? fallback.lat).toFixed(5));
+    const lng = Number((exactLng ?? fallback.lng).toFixed(5));
+    const nearest = findNearestSabahLandmark(lat, lng);
+    const formatted = `Pinned: ${lat.toFixed(4)}, ${lng.toFixed(4)} (${
+      nearest.name
+    })`;
     setAddressQuery(formatted);
     dispatch({
       type: 'UPDATE_PIN_LOCATION',
@@ -354,24 +478,32 @@ export const CustomerSosScreen: React.FC = () => {
         address: formatted,
         mapX: newX,
         mapY: newY,
+        source: 'manual',
       },
     });
   };
 
   const selectLandmark = (lm: SabahLandmark) => {
+    ++geoRequestIdRef.current;
+    geoAbortRef.current?.abort();
+    setIsLocating(false);
+
+    const coords = latLngToMapCoords(lm.lat, lm.lng);
     const formatted = `Pinned: ${lm.lat.toFixed(4)}, ${lm.lng.toFixed(4)} (${
       lm.name
     })`;
     setAddressQuery(formatted);
     setShowSuggestions(false);
+    setFlyTrigger((c) => c + 1);
     dispatch({
       type: 'UPDATE_PIN_LOCATION',
       payload: {
         lat: lm.lat,
         lng: lm.lng,
         address: formatted,
-        mapX: lm.mapX,
-        mapY: lm.mapY,
+        mapX: coords.mapX,
+        mapY: coords.mapY,
+        source: 'landmark',
       },
     });
   };
@@ -629,6 +761,7 @@ export const CustomerSosScreen: React.FC = () => {
               stage={state.rescueStage}
               pinLat={state.pinnedLocation.lat}
               pinLng={state.pinnedLocation.lng}
+              locationSource={state.pinnedLocation.source}
               responderLat={responderLat}
               responderLng={responderLng}
               flyToTrigger={flyTrigger}
@@ -655,15 +788,17 @@ export const CustomerSosScreen: React.FC = () => {
           </div>
 
           <button
-            onClick={() => {
-              selectLandmark(SABAH_LANDMARKS[0]);
-              setMapZoom(1.45);
-              notify('GPS Locked: Jalan Lintas Penampang, KK', 'info');
-            }}
+            onClick={() => void handleGpsLocate()}
+            disabled={isLocating}
             aria-label="Recenter GPS"
-            className="absolute right-3 bottom-4 w-11 h-11 rounded-full bg-[#141923]/95 border border-[#282C37] text-red-400 shadow-xl flex items-center justify-center z-20"
+            aria-busy={isLocating}
+            className="absolute right-3 bottom-4 w-11 h-11 rounded-full bg-[#141923]/95 border border-[#282C37] text-red-400 shadow-xl flex items-center justify-center z-20 disabled:opacity-75"
           >
-            <Crosshair className="w-5 h-5" />
+            {isLocating ? (
+              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+            ) : (
+              <Crosshair className="w-5 h-5" />
+            )}
           </button>
         </div>
 
@@ -675,13 +810,21 @@ export const CustomerSosScreen: React.FC = () => {
           }`}
         >
           <div className="w-10 h-1 rounded-full bg-gray-600/50 mx-auto mb-3" />
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between gap-2 mb-3">
             <h2 className="text-xs font-black tracking-[0.15em] text-red-400 uppercase">
               {t.confirmLocation}
             </h2>
-            <span className="text-[11px] font-mono text-gray-400">
-              ETA ~{state.selectedService.etaMin} mins
-            </span>
+            <div className="flex items-center gap-1.5">
+              {state.pinnedLocation.source === 'gps' &&
+                state.pinnedLocation.accuracyMeters !== undefined && (
+                  <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/35 text-blue-400 text-[10px] font-mono font-bold">
+                    GPS ±{state.pinnedLocation.accuracyMeters}m
+                  </span>
+                )}
+              <span className="text-[11px] font-mono text-gray-400">
+                ETA ~{state.selectedService.etaMin} mins
+              </span>
+            </div>
           </div>
 
           <div className="relative mb-3">
@@ -693,7 +836,7 @@ export const CustomerSosScreen: React.FC = () => {
               {t.addressLabel}
             </label>
             <div
-              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border ${
+              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border ${
                 isLight
                   ? 'bg-slate-50 border-slate-300'
                   : 'bg-[#181C24] border-[#282C37]'
@@ -705,23 +848,44 @@ export const CustomerSosScreen: React.FC = () => {
                 value={addressQuery}
                 onFocus={() => setShowSuggestions(true)}
                 onChange={(e) => {
+                  ++geoRequestIdRef.current;
+                  geoAbortRef.current?.abort();
+                  setIsLocating(false);
                   setAddressQuery(e.target.value);
                   setShowSuggestions(true);
                 }}
                 placeholder="Search Sabah landmark or drag map..."
-                className="flex-1 bg-transparent text-xs font-semibold outline-none truncate"
+                className="flex-1 bg-transparent text-xs font-semibold outline-none truncate min-w-0"
               />
               {addressQuery && (
                 <button
                   onClick={() => {
+                    ++geoRequestIdRef.current;
+                    geoAbortRef.current?.abort();
+                    setIsLocating(false);
                     setAddressQuery('');
                     setShowSuggestions(true);
                   }}
-                  className="p-1 text-gray-400 hover:text-white"
+                  aria-label="Clear address"
+                  className="p-1 text-gray-400 hover:text-white shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
+              <button
+                onClick={() => void handleGpsLocate()}
+                disabled={isLocating}
+                aria-label="Use current GPS location"
+                aria-busy={isLocating}
+                className="px-2 py-1 rounded-lg bg-blue-600/20 text-blue-400 text-[10px] font-bold shrink-0 flex items-center gap-1 disabled:opacity-70"
+              >
+                {isLocating ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Crosshair className="w-3 h-3" />
+                )}
+                GPS
+              </button>
               <button
                 onClick={() => setShowSuggestions((s) => !s)}
                 className="px-2 py-1 rounded-lg bg-red-600/20 text-red-400 text-[10px] font-bold shrink-0"
@@ -753,17 +917,25 @@ export const CustomerSosScreen: React.FC = () => {
                   <button
                     key={`osm-${i}`}
                     onClick={() => {
-                      const formatted = `Pinned: ${nr.lat}, ${nr.lng} (${nr.label})`;
+                      ++geoRequestIdRef.current;
+                      geoAbortRef.current?.abort();
+                      setIsLocating(false);
+                      const coords = latLngToMapCoords(nr.lat, nr.lng);
+                      const formatted = `Pinned: ${nr.lat.toFixed(
+                        4
+                      )}, ${nr.lng.toFixed(4)} (${nr.label})`;
                       setAddressQuery(formatted);
                       setShowSuggestions(false);
+                      setFlyTrigger((c) => c + 1);
                       dispatch({
                         type: 'UPDATE_PIN_LOCATION',
                         payload: {
                           lat: nr.lat,
                           lng: nr.lng,
                           address: formatted,
-                          mapX: 500,
-                          mapY: 480,
+                          mapX: coords.mapX,
+                          mapY: coords.mapY,
+                          source: 'search',
                         },
                       });
                     }}
