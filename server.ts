@@ -210,22 +210,56 @@ async function startServer() {
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
     });
-  } else {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  }
 
-  app.listen(port, '0.0.0.0', () => {
-    console.log(
-      `[RepairBah] Listening on 0.0.0.0:${port} (NODE_ENV=${
-        process.env.NODE_ENV || 'development'
-      })`
-    );
-  });
+    app.listen(port, '0.0.0.0', () => {
+      console.log(
+        `[RepairBah] Listening on 0.0.0.0:${port} (NODE_ENV=${
+          process.env.NODE_ENV || 'development'
+        }, static=dist)`
+      );
+    });
+  } else {
+    let viteMiddlewares:
+      | ((req: Request, res: Response, next: NextFunction) => void)
+      | null = null;
+
+    app.use((req, res, next) => {
+      if (viteMiddlewares) {
+        return viteMiddlewares(req, res, next);
+      }
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        res
+          .status(200)
+          .setHeader('Content-Type', 'text/html; charset=utf-8')
+          .send(
+            '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2"><title>Starting RepairBah...</title></head><body style="background:#0E1117;color:#fff;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Starting RepairBah...</p></body></html>'
+          );
+        return;
+      }
+      next();
+    });
+
+    app.listen(port, '0.0.0.0', () => {
+      console.log(
+        `[RepairBah] Listening on 0.0.0.0:${port} (NODE_ENV=${
+          process.env.NODE_ENV || 'development'
+        }, vite=async)`
+      );
+      import('vite')
+        .then(({ createServer: createViteServer }) =>
+          createViteServer({
+            server: { middlewareMode: true },
+            appType: 'spa',
+          })
+        )
+        .then((vite) => {
+          viteMiddlewares = vite.middlewares;
+        })
+        .catch((err) => {
+          console.error('[RepairBah] Vite init error:', err);
+        });
+    });
+  }
 }
 
 startServer().catch((err) => {
