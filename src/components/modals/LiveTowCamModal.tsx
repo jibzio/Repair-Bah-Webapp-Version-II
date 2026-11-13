@@ -16,6 +16,10 @@ export const LiveTowCamModal: React.FC = () => {
 
   const isBroadcaster = state.screen === 'tow';
   const slaEtaMins = Math.max(1, Math.ceil(state.slaSecondsRemaining / 60));
+  const activeVehicle =
+    state.vehicles.find((v) => v.id === state.activeVehicleId) ||
+    state.vehicles[0];
+  const displayPlate = activeVehicle?.plate || 'GUEST-SOS';
 
   useEffect(() => {
     if (!state.towCamOpen) return;
@@ -224,7 +228,7 @@ export const LiveTowCamModal: React.FC = () => {
             </p>
             <div className="mt-6 w-56 h-28 border border-emerald-500/50 rounded-xl relative flex items-center justify-center">
               <div className="w-40 h-16 border-2 border-dashed border-emerald-400 rounded-lg flex items-center justify-center text-xs font-mono text-emerald-300">
-                SAB 8821 X • LOCKED
+                {displayPlate} • LOCKED
               </div>
             </div>
           </div>

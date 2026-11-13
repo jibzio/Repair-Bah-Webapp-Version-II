@@ -144,6 +144,15 @@ export interface PinnedLocation {
   source?: LocationSource;
 }
 
+export interface UserProfile {
+  isGuest: boolean;
+  id: string;
+  fullName: string;
+  phone: string;
+  email: string;
+  initials: string;
+}
+
 export interface AppState {
   screen: ScreenId;
   drawerOpen: boolean;
@@ -151,6 +160,10 @@ export interface AppState {
   language: Language;
   hazardStrobe: boolean;
   demoMode: boolean;
+
+  // Identity (Guest-First + Optional Registration)
+  userProfile: UserProfile;
+  authModalOpen: boolean;
 
   // Rescue 10-Stage FSM
   rescueStage: RescueStage;
@@ -205,6 +218,18 @@ export type AppAction =
   | { type: 'TOGGLE_LANGUAGE' }
   | { type: 'TOGGLE_HAZARD' }
   | { type: 'SET_DEMO_MODE'; payload: boolean }
+  | { type: 'SET_AUTH_MODAL'; payload: boolean }
+  | {
+      type: 'REGISTER_OR_SIGNIN';
+      payload: {
+        fullName: string;
+        phone: string;
+        email: string;
+        vehicleMakeModel?: string;
+        vehiclePlate?: string;
+      };
+    }
+  | { type: 'SIGN_OUT_TO_GUEST' }
   | { type: 'SET_RESCUE_STAGE'; payload: RescueStage }
   | { type: 'SELECT_SERVICE'; payload: ServiceOption }
   | {

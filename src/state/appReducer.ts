@@ -1,7 +1,5 @@
 import { getRuntimeConfig, saveRuntimeConfigOverride } from '../config/env';
 import {
-  INITIAL_VEHICLES,
-  MARKETPLACE_PARTS,
   PERSISTED_STATE_KEY,
   SERVICES,
   SESSION_TTL_MS,
@@ -12,11 +10,32 @@ import {
   DisplayMode,
   formatTicketCode,
   generateUuid,
-  isValidUuid,
   Language,
   LedgerEntry,
-  RescueStage,
+  UserProfile,
+  VehicleProfile,
 } from '../types/repairbah';
+
+function buildGuestProfile(): UserProfile {
+  return {
+    isGuest: true,
+    id: `guest_${generateUuid().slice(0, 8)}`,
+    fullName: 'Guest Motorist',
+    phone: '',
+    email: '',
+    initials: 'GM',
+  };
+}
+
+function computeInitials(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'RB';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
 
 export function buildInitialState(): AppState {
   const runtimeCfg = getRuntimeConfig();
@@ -28,6 +47,9 @@ export function buildInitialState(): AppState {
     language: 'EN',
     hazardStrobe: false,
     demoMode: false,
+
+    userProfile: buildGuestProfile(),
+    authModalOpen: false,
 
     rescueStage: 0,
     activeJobId: generateUuid(),
@@ -96,25 +118,11 @@ export function buildInitialState(): AppState {
     ],
     signatureDataUrl: null,
 
-    vehicles: INITIAL_VEHICLES,
-    activeVehicleId: 'v1',
-    vaultBalance: 20.0,
-    ledger: [
-      {
-        id: 'led1',
-        title: 'Sabah Member Welcome Credit',
-        timestamp: '10 Nov 2026, 09:15',
-        amount: 20.0,
-        type: 'CREDIT',
-        ref: 'PROMO-SBH20',
-      },
-    ],
-    cart: [
-      {
-        part: MARKETPLACE_PARTS[0],
-        qty: 1,
-      },
-    ],
+    vehicles: [],
+    activeVehicleId: '',
+    vaultBalance: 0,
+    ledger: [],
+    cart: [],
 
     workforceUnlockedUntil: null,
     pendingConsoleTarget: null,
@@ -196,22 +204,6 @@ export function getInitialState(): AppState {
       return urlDemo ? { ...baseState, demoMode: true } : baseState;
     }
     const saved = JSON.parse(raw) as Partial<AppState>;
-    const validVehicles =
-      Array.isArray(saved.vehicles) && saved.vehicles.length > 0
-        ? saved.vehicles
-        : baseState.vehicles;
-    const validActiveVehicleId =
-      typeof saved.activeVehicleId === 'string' &&
-      validVehicles.some((v) => v.id === saved.activeVehicleId)
-        ? saved.activeVehicleId
-        : validVehicles[0].id;
-    const validBalance =
-      typeof saved.vaultBalance === 'number' && !Number.isNaN(saved.vaultBalance)
-        ? saved.vaultBalance
-        : baseState.vaultBalance;
-    const validLedger = Array.isArray(saved.ledger)
-      ? saved.ledger
-      : baseState.ledger;
     const validDisplayMode: DisplayMode =
       saved.displayMode === 'sunlight' || saved.displayMode === 'obsidian'
         ? saved.displayMode
@@ -221,6 +213,63 @@ export function getInitialState(): AppState {
         ? saved.language
         : baseState.language;
     const validDemoMode = urlDemo || saved.demoMode === true;
+
+    const hasValidUserProfile =
+      typeof saved.userProfile === 'object' &&
+      saved.userProfile !== null &&
+      typeof saved.userProfile.id === 'string' &&
+      typeof saved.userProfile.isGuest === 'boolean';
+
+    if (!hasValidUserProfile) {
+      return {
+        ...baseState,
+        displayMode: validDisplayMode,
+        language: validLanguage,
+        demoMode: validDemoMode,
+        rescueStage: 0,
+      };
+    }
+
+    const validUserProfile: UserProfile = {
+      isGuest: Boolean(saved.userProfile!.isGuest),
+      id: saved.userProfile!.id,
+      fullName:
+        typeof saved.userProfile!.fullName === 'string' &&
+        saved.userProfile!.fullName.trim()
+          ? saved.userProfile!.fullName
+          : 'Guest Motorist',
+      phone:
+        typeof saved.userProfile!.phone === 'string'
+          ? saved.userProfile!.phone
+          : '',
+      email:
+        typeof saved.userProfile!.email === 'string'
+          ? saved.userProfile!.email
+          : '',
+      initials:
+        typeof saved.userProfile!.initials === 'string' &&
+        saved.userProfile!.initials.trim()
+          ? saved.userProfile!.initials
+          : 'GM',
+    };
+
+    const validVehicles = Array.isArray(saved.vehicles)
+      ? saved.vehicles
+      : baseState.vehicles;
+    const validActiveVehicleId =
+      validVehicles.length === 0
+        ? ''
+        : typeof saved.activeVehicleId === 'string' &&
+          validVehicles.some((v) => v.id === saved.activeVehicleId)
+        ? saved.activeVehicleId
+        : validVehicles[0].id;
+    const validBalance =
+      typeof saved.vaultBalance === 'number' && !Number.isNaN(saved.vaultBalance)
+        ? saved.vaultBalance
+        : baseState.vaultBalance;
+    const validLedger = Array.isArray(saved.ledger)
+      ? saved.ledger
+      : baseState.ledger;
 
     if (
       typeof saved.rescueStage === 'number' &&
@@ -240,6 +289,7 @@ export function getInitialState(): AppState {
     return {
       ...baseState,
       activeJobId: generateUuid(),
+      userProfile: validUserProfile,
       vehicles: validVehicles,
       activeVehicleId: validActiveVehicleId,
       vaultBalance: validBalance,
@@ -290,6 +340,92 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, hazardStrobe: !state.hazardStrobe };
     case 'SET_DEMO_MODE':
       return { ...state, demoMode: action.payload };
+    case 'SET_AUTH_MODAL':
+      return { ...state, authModalOpen: action.payload };
+    case 'REGISTER_OR_SIGNIN': {
+      const cleanName = action.payload.fullName.trim() || 'Sabah Motorist';
+      const cleanPhone = action.payload.phone.trim();
+      const cleanEmail = action.payload.email.trim();
+      const nextProfile: UserProfile = {
+        isGuest: false,
+        id: state.userProfile.isGuest
+          ? `usr_${generateUuid().slice(0, 8)}`
+          : state.userProfile.id,
+        fullName: cleanName,
+        phone: cleanPhone,
+        email: cleanEmail,
+        initials: computeInitials(cleanName),
+      };
+
+      const alreadyGranted = state.ledger.some(
+        (entry) => entry.ref === 'PROMO-SBH20'
+      );
+      const nextBalance = alreadyGranted
+        ? state.vaultBalance
+        : Number((state.vaultBalance + 20.0).toFixed(2));
+      const nextLedger: LedgerEntry[] = alreadyGranted
+        ? state.ledger
+        : [
+            {
+              id: `led-welcome-${Date.now()}`,
+              title: 'Sabah Member Welcome Credit',
+              timestamp: 'Just now',
+              amount: 20.0,
+              type: 'CREDIT',
+              ref: 'PROMO-SBH20',
+            },
+            ...state.ledger,
+          ];
+
+      const cleanModel = action.payload.vehicleMakeModel?.trim() || '';
+      const cleanPlate = action.payload.vehiclePlate
+        ?.trim()
+        .toUpperCase() || '';
+      let nextVehicles = state.vehicles;
+      let nextActiveVehicleId = state.activeVehicleId;
+
+      if (cleanModel || cleanPlate) {
+        const existing = cleanPlate
+          ? state.vehicles.find((v) => v.plate.toUpperCase() === cleanPlate)
+          : undefined;
+        if (existing) {
+          nextActiveVehicleId = existing.id;
+        } else {
+          const newVeh: VehicleProfile = {
+            id: `v-${Date.now()}`,
+            makeModel: cleanModel || 'Registered Vehicle',
+            variant: 'Sabah Member Fleet',
+            plate: cleanPlate || 'SAB PENDING',
+            vin: 'PENDING-JPJ-SYNC',
+            year: new Date().getFullYear(),
+            jpjVerified: Boolean(cleanPlate),
+            roadtaxExpiry: 'Active',
+          };
+          nextVehicles = [newVeh, ...state.vehicles];
+          nextActiveVehicleId = newVeh.id;
+        }
+      }
+
+      return {
+        ...state,
+        userProfile: nextProfile,
+        vehicles: nextVehicles,
+        activeVehicleId: nextActiveVehicleId,
+        vaultBalance: nextBalance,
+        ledger: nextLedger,
+        authModalOpen: false,
+      };
+    }
+    case 'SIGN_OUT_TO_GUEST':
+      return {
+        ...state,
+        userProfile: buildGuestProfile(),
+        vehicles: [],
+        activeVehicleId: '',
+        vaultBalance: 0,
+        ledger: [],
+        authModalOpen: false,
+      };
     case 'SET_RESCUE_STAGE':
       return {
         ...state,

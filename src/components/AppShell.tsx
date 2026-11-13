@@ -13,6 +13,7 @@ import {
   ShoppingBag,
   Sparkles,
   Truck,
+  UserPlus,
   Wrench,
   X,
   Zap,
@@ -33,18 +34,27 @@ export const ScreenTopBar: React.FC<{
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={() => dispatch({ type: 'SET_DRAWER', payload: true })}
-          className={`w-10 h-10 rounded-full border flex items-center justify-center shrink-0 ${
+          aria-label="Open menu"
+          className={`w-11 h-11 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
             isLight
-              ? 'bg-white border-slate-300 text-slate-900'
-              : 'bg-[#181C24] border-[#282C37] text-white'
+              ? 'bg-white border-slate-200 text-slate-900 hover:bg-slate-50'
+              : 'bg-[#141923] border-[#232936] text-white hover:bg-[#181C24]'
           }`}
         >
           <Menu className="w-5 h-5" />
         </button>
         <div className="min-w-0">
-          <h1 className="text-base font-black truncate">{title}</h1>
+          <h1 className="text-base font-extrabold tracking-tight truncate">
+            {title}
+          </h1>
           {subtitle && (
-            <p className="text-[11px] text-gray-400 truncate">{subtitle}</p>
+            <p
+              className={`text-[11px] truncate ${
+                isLight ? 'text-slate-600' : 'text-slate-400'
+              }`}
+            >
+              {subtitle}
+            </p>
           )}
         </div>
       </div>
@@ -72,24 +82,25 @@ export const SnackbarHost: React.FC = () => {
       {state.snackbars.map((sb) => {
         const toneStyles =
           sb.tone === 'success'
-            ? 'border-emerald-500/60 bg-[#11241E] text-emerald-100'
+            ? 'border-emerald-500/50 bg-[#11221C] text-emerald-100'
             : sb.tone === 'warning'
-            ? 'border-amber-500/60 bg-[#261D11] text-amber-100'
+            ? 'border-amber-500/50 bg-[#241C10] text-amber-100'
             : sb.tone === 'error'
-            ? 'border-red-500/60 bg-[#281316] text-red-100'
-            : 'border-[#333A4A] bg-[#181C24] text-white';
+            ? 'border-red-500/50 bg-[#261215] text-red-100'
+            : 'border-[#232936] bg-[#141923] text-white';
 
         return (
           <div
             key={sb.id}
-            className={`pointer-events-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md text-xs font-semibold transition-all ${toneStyles}`}
+            className={`pointer-events-auto flex items-center justify-between gap-3 px-4 py-3 rounded-xl border shadow-2xl text-xs font-semibold transition-all ${toneStyles}`}
           >
             <span className="leading-snug">{sb.text}</span>
             <button
               onClick={() =>
                 dispatch({ type: 'DISMISS_SNACKBAR', payload: sb.id })
               }
-              className="p-1 rounded-full hover:bg-white/10 shrink-0"
+              aria-label="Dismiss notification"
+              className="p-1.5 rounded-full hover:bg-white/10 shrink-0"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -106,28 +117,37 @@ export const EmergencyHotlinesModal: React.FC = () => {
   if (!state.hotlinesOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3">
+    <div className="fixed inset-0 z-[70] bg-black/75 flex items-end sm:items-center justify-center p-3">
       <div
-        className={`w-full max-w-[490px] rounded-3xl border p-5 max-h-[85dvh] overflow-y-auto ${
+        className={`w-full max-w-[490px] rounded-t-3xl sm:rounded-3xl border p-5 max-h-[85dvh] overflow-y-auto ${
           isLight
             ? 'bg-white border-slate-200 text-slate-900'
-            : 'bg-[#141923] border-[#282C37] text-white'
+            : 'bg-[#141923] border-[#232936] text-white'
         }`}
       >
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-base font-black text-red-500">
+            <h3 className="text-base font-extrabold text-red-500">
               Sabah Emergency Hotlines
             </h3>
-            <p className="text-[11px] text-gray-400">
-              One-Tap Direct Dial & Dispatch Copy
+            <p
+              className={`text-[11px] ${
+                isLight ? 'text-slate-600' : 'text-slate-400'
+              }`}
+            >
+              One-Tap Direct Dial &amp; Dispatch Copy
             </p>
           </div>
           <button
             onClick={() =>
               dispatch({ type: 'SET_HOTLINES_OPEN', payload: false })
             }
-            className="p-2 rounded-full bg-gray-800 text-white"
+            aria-label="Close hotlines"
+            className={`w-10 h-10 rounded-full border flex items-center justify-center ${
+              isLight
+                ? 'bg-slate-100 border-slate-200 text-slate-700'
+                : 'bg-[#181C24] border-[#232936] text-slate-300'
+            }`}
           >
             <X className="w-4 h-4" />
           </button>
@@ -137,18 +157,24 @@ export const EmergencyHotlinesModal: React.FC = () => {
           {SABAH_HOTLINES.map((h) => (
             <div
               key={h.name}
-              className={`rounded-2xl border p-3.5 flex items-center justify-between gap-2 ${
+              className={`rounded-xl border p-3.5 flex items-center justify-between gap-2 ${
                 isLight
                   ? 'bg-slate-50 border-slate-200'
-                  : 'bg-[#181C24] border-[#282C37]'
+                  : 'bg-[#181C24] border-[#232936]'
               }`}
             >
               <div className="min-w-0">
-                <span className="text-[9px] font-black px-2 py-0.5 rounded bg-red-600/20 text-red-400">
+                <div className="text-[10px] font-bold tracking-wider text-red-500 uppercase">
                   {h.badge}
-                </span>
-                <div className="text-xs font-bold mt-1">{h.name}</div>
-                <div className="text-[11px] text-gray-400">{h.desc}</div>
+                </div>
+                <div className="text-xs font-bold mt-0.5">{h.name}</div>
+                <div
+                  className={`text-[11px] ${
+                    isLight ? 'text-slate-600' : 'text-slate-400'
+                  }`}
+                >
+                  {h.desc}
+                </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
@@ -156,16 +182,21 @@ export const EmergencyHotlinesModal: React.FC = () => {
                     navigator.clipboard?.writeText(h.number);
                     notify(`Copied ${h.number}`, 'info');
                   }}
-                  className="p-2.5 rounded-xl bg-gray-800 text-gray-300"
+                  aria-label={`Copy ${h.number}`}
+                  className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+                    isLight
+                      ? 'bg-white border-slate-300 text-slate-700'
+                      : 'bg-[#141923] border-[#232936] text-slate-300'
+                  }`}
                 >
                   <Copy className="w-3.5 h-3.5" />
                 </button>
                 <a
                   href={`tel:${h.number}`}
-                  className="px-3 py-2.5 rounded-xl bg-red-600 text-white font-black text-xs flex items-center gap-1"
+                  className="px-3.5 py-2.5 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs flex items-center gap-1.5 whitespace-nowrap active:scale-[0.99] transition-all"
                 >
                   <Phone className="w-3.5 h-3.5" />
-                  {h.number}
+                  <span className="font-mono">{h.number}</span>
                 </a>
               </div>
             </div>
@@ -191,36 +222,49 @@ export const SupabaseConfigDialog: React.FC = () => {
 
   if (!state.supabaseDialogOpen) return null;
 
+  const labelSurface = isLight ? 'bg-white' : 'bg-[#141923]';
+
   return (
-    <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[70] bg-black/75 flex items-center justify-center p-4">
       <div
         className={`w-full max-w-[460px] rounded-3xl border p-5 ${
           isLight
             ? 'bg-white border-slate-200 text-slate-900'
-            : 'bg-[#141923] border-[#282C37] text-white'
+            : 'bg-[#141923] border-[#232936] text-white'
         }`}
       >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Database className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-sm font-black">
-              Supabase Realtime & Offline Sync Bridge
+            <Database className="w-4 h-4 text-emerald-500" />
+            <h3 className="text-sm font-extrabold">
+              Supabase Realtime &amp; Sync Bridge
             </h3>
           </div>
           <button
             onClick={() =>
               dispatch({ type: 'SET_SUPABASE_DIALOG', payload: false })
             }
-            className="p-1.5 rounded-full bg-gray-800 text-white"
+            aria-label="Close bridge settings"
+            className={`w-9 h-9 rounded-full border flex items-center justify-center ${
+              isLight
+                ? 'bg-slate-100 border-slate-200 text-slate-700'
+                : 'bg-[#181C24] border-[#232936] text-slate-300'
+            }`}
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="text-[11px] text-gray-400 space-y-1 mb-4 font-mono bg-black/30 p-3 rounded-xl border border-gray-800">
+        <div
+          className={`text-[11px] space-y-1 mb-4 font-mono p-3 rounded-xl border ${
+            isLight
+              ? 'bg-slate-50 border-slate-200 text-slate-600'
+              : 'bg-[#181C24] border-[#232936] text-slate-400'
+          }`}
+        >
           <div>
             WS Status:{' '}
-            <span className="text-emerald-400">
+            <span className="text-emerald-500 font-semibold">
               {state.realtimeConnected ? 'PHX_JOINED (25s Heartbeat)' : 'POLLING'}
             </span>
           </div>
@@ -229,46 +273,64 @@ export const SupabaseConfigDialog: React.FC = () => {
           <div>Offline Mutation Queue: {state.offlineQueueCount} pending</div>
         </div>
 
-        <div className="space-y-3 mb-4">
-          <div>
-            <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+        <div className="space-y-4 mb-4">
+          <div
+            className={`relative rounded-xl border ${
+              isLight
+                ? 'bg-white border-slate-300 focus-within:border-[#DC2626]'
+                : 'bg-[#181C24] border-[#232936] focus-within:border-[#DC2626]'
+            }`}
+          >
+            <label
+              className={`absolute -top-2 left-3 px-1 text-[10px] font-semibold font-mono ${labelSurface} ${
+                isLight ? 'text-slate-600' : 'text-slate-400'
+              }`}
+            >
               SUPABASE_URL
             </label>
             <input
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-black/30 border border-gray-700 text-xs font-mono"
+              className="w-full px-3.5 py-2.5 bg-transparent text-xs font-mono outline-none"
             />
           </div>
-          <div>
-            <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+          <div
+            className={`relative rounded-xl border ${
+              isLight
+                ? 'bg-white border-slate-300 focus-within:border-[#DC2626]'
+                : 'bg-[#181C24] border-[#232936] focus-within:border-[#DC2626]'
+            }`}
+          >
+            <label
+              className={`absolute -top-2 left-3 px-1 text-[10px] font-semibold font-mono ${labelSurface} ${
+                isLight ? 'text-slate-600' : 'text-slate-400'
+              }`}
+            >
               SUPABASE_ANON_KEY
             </label>
             <input
               type="text"
               value={anonKey}
               onChange={(e) => setAnonKey(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-black/30 border border-gray-700 text-xs font-mono"
+              className="w-full px-3.5 py-2.5 bg-transparent text-xs font-mono outline-none"
             />
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              dispatch({
-                type: 'UPDATE_CONFIG',
-                payload: { supabaseUrl: url, supabaseAnonKey: anonKey },
-              });
-              dispatch({ type: 'SET_SUPABASE_DIALOG', payload: false });
-              notify('Updated Supabase Realtime Credentials', 'success');
-            }}
-            className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-xs"
-          >
-            Apply & Reconnect
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            dispatch({
+              type: 'UPDATE_CONFIG',
+              payload: { supabaseUrl: url, supabaseAnonKey: anonKey },
+            });
+            dispatch({ type: 'SET_SUPABASE_DIALOG', payload: false });
+            notify('Updated Supabase Realtime Credentials', 'success');
+          }}
+          className="w-full py-3 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs active:scale-[0.99] transition-all"
+        >
+          Apply &amp; Reconnect
+        </button>
       </div>
     </div>
   );
@@ -296,7 +358,7 @@ export const AppDrawer: React.FC = () => {
     <>
       <div
         onClick={() => dispatch({ type: 'SET_DRAWER', payload: false })}
-        className={`fixed inset-0 z-40 bg-black/65 backdrop-blur-xs transition-opacity duration-200 ${
+        className={`fixed inset-0 z-40 bg-black/70 transition-opacity duration-200 ${
           state.drawerOpen
             ? 'opacity-100 pointer-events-auto'
             : 'opacity-0 pointer-events-none'
@@ -309,30 +371,69 @@ export const AppDrawer: React.FC = () => {
         } ${
           isLight
             ? 'bg-white border-slate-200 text-slate-900'
-            : 'bg-[#141923] border-[#282C37] text-white'
+            : 'bg-[#141923] border-[#232936] text-white'
         }`}
       >
-        <div className="p-5 border-b border-gray-800/70">
+        <div
+          className={`p-5 border-b ${
+            isLight ? 'border-slate-200' : 'border-[#232936]'
+          }`}
+        >
           <div className="flex items-start justify-between mb-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-600 to-red-800 text-white font-black text-base flex items-center justify-center shadow-lg">
-              AH
+            <div className="w-12 h-12 rounded-2xl bg-[#DC2626] text-white font-extrabold text-base flex items-center justify-center">
+              {state.userProfile.initials}
             </div>
             <button
               onClick={() => dispatch({ type: 'SET_DRAWER', payload: false })}
               aria-label="Close drawer"
-              className="w-9 h-9 rounded-full bg-gray-800/80 text-gray-300 flex items-center justify-center"
+              className={`w-10 h-10 rounded-full border flex items-center justify-center ${
+                isLight
+                  ? 'bg-slate-100 border-slate-200 text-slate-700'
+                  : 'bg-[#181C24] border-[#232936] text-slate-300'
+              }`}
             >
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="font-black text-sm flex items-center gap-1.5">
-            <span>Ahmad • Verified Member</span>
-            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          <div className="font-extrabold text-sm flex items-center gap-1.5">
+            <span className="truncate">{state.userProfile.fullName}</span>
+            {!state.userProfile.isGuest && (
+              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+            )}
           </div>
-          <div className="text-xs text-gray-400 font-mono mt-0.5">
-            {activeVehicle.makeModel.split(' ').slice(0, 2).join(' ')} (
-            {activeVehicle.plate})
+          <div
+            className={`text-xs font-mono mt-0.5 truncate ${
+              isLight ? 'text-slate-600' : 'text-slate-400'
+            }`}
+          >
+            {activeVehicle
+              ? `${activeVehicle.makeModel} · ${activeVehicle.plate}`
+              : state.userProfile.isGuest
+              ? 'Guest Session · No Vehicle Linked'
+              : 'No Vehicle Registered'}
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              dispatch({ type: 'SET_DRAWER', payload: false });
+              dispatch({ type: 'SET_AUTH_MODAL', payload: true });
+            }}
+            className={`mt-3 w-full py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-[0.99] ${
+              state.userProfile.isGuest
+                ? 'bg-[#DC2626] hover:bg-[#B91C1C] text-white'
+                : isLight
+                ? 'bg-slate-100 border border-slate-300 text-slate-800 hover:bg-slate-200'
+                : 'bg-[#181C24] border border-[#232936] text-slate-200 hover:bg-[#1E2430]'
+            }`}
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>
+              {state.userProfile.isGuest
+                ? 'Register / Sign In'
+                : 'Account & Profile'}
+            </span>
+          </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
@@ -343,17 +444,21 @@ export const AppDrawer: React.FC = () => {
               <button
                 key={item.id}
                 onClick={() => dispatch({ type: 'NAVIGATE', payload: item.id })}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-full text-xs font-bold transition-colors ${
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-colors ${
                   active
-                    ? 'bg-red-600/20 text-red-400 border border-red-500/35'
+                    ? 'bg-red-600/15 text-red-500 border border-red-500/35'
                     : isLight
-                    ? 'text-slate-700 hover:bg-slate-100'
-                    : 'text-gray-300 hover:bg-white/5'
+                    ? 'text-slate-700 hover:bg-slate-100 border border-transparent'
+                    : 'text-slate-300 hover:bg-[#181C24] border border-transparent'
                 }`}
               >
                 <Icon
                   className={`w-4 h-4 shrink-0 ${
-                    active ? 'text-red-500' : 'text-gray-400'
+                    active
+                      ? 'text-red-500'
+                      : isLight
+                      ? 'text-slate-500'
+                      : 'text-slate-400'
                   }`}
                 />
                 <span className="truncate flex-1 text-left">{item.label}</span>
@@ -362,7 +467,13 @@ export const AppDrawer: React.FC = () => {
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-800/70 flex items-center justify-between text-[10px] text-gray-500 font-mono">
+        <div
+          className={`p-4 border-t flex items-center justify-between text-[10px] font-mono ${
+            isLight
+              ? 'border-slate-200 text-slate-500'
+              : 'border-[#232936] text-slate-500'
+          }`}
+        >
           <span>RepairBah Sabah v2.4</span>
           <span>LHDN + SST Ready</span>
         </div>
@@ -387,9 +498,9 @@ export const BottomNavBar: React.FC = () => {
     <nav
       className={`absolute bottom-0 left-0 right-0 z-30 border-t px-2 py-2 flex items-center justify-around ${
         isLight
-          ? 'bg-white/95 border-slate-200 text-slate-900'
-          : 'bg-[#141923]/95 border-[#282C37] text-white'
-      } backdrop-blur-md`}
+          ? 'bg-white border-slate-200 text-slate-900'
+          : 'bg-[#141923] border-[#232936] text-white'
+      }`}
     >
       {tabs.map((tab) => {
         const active =
@@ -412,21 +523,25 @@ export const BottomNavBar: React.FC = () => {
             className="flex flex-col items-center justify-center flex-1 py-1 group"
           >
             <div
-              className={`px-4 py-1 rounded-full transition-all duration-200 ${
+              className={`px-4 py-1 rounded-full transition-colors duration-150 ${
                 active
-                  ? 'bg-red-600/20 text-red-500'
-                  : 'text-gray-400 group-hover:text-gray-200'
+                  ? 'bg-red-600/15 text-red-500'
+                  : isLight
+                  ? 'text-slate-500 group-hover:text-slate-800'
+                  : 'text-slate-400 group-hover:text-slate-200'
               }`}
             >
               <Icon className="w-5 h-5" />
             </div>
             <span
-              className={`text-[10px] font-bold mt-1 ${
+              className={`text-[10px] font-bold mt-1 whitespace-nowrap ${
                 active
                   ? isLight
                     ? 'text-slate-900'
                     : 'text-white'
-                  : 'text-gray-400'
+                  : isLight
+                  ? 'text-slate-500'
+                  : 'text-slate-400'
               }`}
             >
               {tab.label}

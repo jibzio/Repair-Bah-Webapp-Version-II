@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useReducer, useRef } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   AppDrawer,
   BottomNavBar,
@@ -6,8 +6,10 @@ import {
   SnackbarHost,
   SupabaseConfigDialog,
 } from './components/AppShell';
+import { AuthModal } from './components/AuthModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LiveTowCamModal } from './components/modals/LiveTowCamModal';
+import { SplashScreen } from './components/SplashScreen';
 import { PERSISTED_STATE_KEY } from './constants/sabahData';
 import { AppCtx } from './context/AppContext';
 import { latLngToMapCoords } from './engines/domainEngines';
@@ -37,12 +39,30 @@ import {
   SnackbarMessage,
 } from './types/repairbah';
 
+const SPLASH_SESSION_KEY = 'repairbah_splash_shown';
+
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, undefined, getInitialState);
+  const [showSplash, setShowSplash] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(SPLASH_SESSION_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
   const stateRef = useRef<AppState>(state);
   stateRef.current = state;
   const offlineQueueRef = useRef<EmergencyRequestDto[]>([]);
   const lastRemoteSigRef = useRef<Record<string, string>>({});
+
+  const handleSplashComplete = useCallback(() => {
+    try {
+      sessionStorage.setItem(SPLASH_SESSION_KEY, '1');
+    } catch {
+      // Ignore storage restrictions
+    }
+    setShowSplash(false);
+  }, []);
 
   const notify = useCallback(
     (text: string, tone: SnackbarMessage['tone'] = 'info') => {
@@ -51,13 +71,14 @@ export default function App() {
     []
   );
 
-  // Persist customer ecosystem, demoMode & active rescueStage to localStorage
+  // Persist customer ecosystem, userProfile, demoMode & active rescueStage to localStorage
   useEffect(() => {
     try {
       localStorage.setItem(
         PERSISTED_STATE_KEY,
         JSON.stringify({
           activeJobId: state.activeJobId,
+          userProfile: state.userProfile,
           vehicles: state.vehicles,
           activeVehicleId: state.activeVehicleId,
           vaultBalance: state.vaultBalance,
@@ -73,6 +94,7 @@ export default function App() {
     }
   }, [
     state.activeJobId,
+    state.userProfile,
     state.vehicles,
     state.activeVehicleId,
     state.vaultBalance,
@@ -100,7 +122,7 @@ export default function App() {
         cur.vehicles.find((v) => v.id === cur.activeVehicleId) || cur.vehicles[0];
       const dto: EmergencyRequestDto = {
         id: String(patch.id ?? patch.job_id ?? cur.activeJobId),
-        user_id: 'ahmad_sbh_8821',
+        user_id: String(patch.user_id ?? cur.userProfile.id),
         service_type: normalizeServiceType(
           String(patch.service_type ?? patch.service ?? cur.selectedService.id)
         ),
@@ -115,10 +137,12 @@ export default function App() {
             `${cur.selectedService.nameEn} • Stage ${cur.rescueStage}/10`
         ),
         vehicle_plate: String(
-          patch.vehicle_plate ?? patch.plate ?? activeVeh?.plate ?? 'SAB 8821 X'
+          patch.vehicle_plate ?? patch.plate ?? activeVeh?.plate ?? 'GUEST-SOS'
         ),
         vehicle_model: String(
-          patch.vehicle_model ?? activeVeh?.makeModel ?? 'Perodua Myvi 1.5L'
+          patch.vehicle_model ??
+            activeVeh?.makeModel ??
+            'Unregistered Vehicle'
         ),
         quoted_price: Number(
           patch.quoted_price ?? patch.price ?? cur.selectedService.price
@@ -407,7 +431,7 @@ export default function App() {
             className={`relative w-full max-w-[540px] h-[100dvh] sm:h-[calc(100dvh-2rem)] sm:max-h-[900px] sm:rounded-[34px] overflow-hidden flex flex-col shadow-[0_24px_80px_rgba(0,0,0,0.75)] transition-all ${
               isLight
                 ? 'bg-[#F8FAFC] text-[#0F172A] sm:border sm:border-slate-300'
-                : 'bg-[#0E1117] text-white sm:border sm:border-[#282C37]'
+                : 'bg-[#0B0F17] text-white sm:border sm:border-[#232936]'
             } ${
               state.hazardStrobe
                 ? 'ring-4 ring-amber-500 animate-pulse'
@@ -424,6 +448,7 @@ export default function App() {
             <AppDrawer />
 
             {/* Modals & Overlays */}
+            <AuthModal />
             <ConsolePinGateModal />
             <EmergencyHotlinesModal />
             <SupabaseConfigDialog />
@@ -437,6 +462,8 @@ export default function App() {
               <LiveTowCamModal />
             </ErrorBoundary>
             <SnackbarHost />
+
+            {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
           </div>
         </div>
       </AppCtx.Provider>

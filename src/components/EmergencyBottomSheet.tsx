@@ -105,9 +105,9 @@ export const EmergencyBottomSheet: React.FC<EmergencyBottomSheetProps> = ({
       transition={{ type: 'spring', stiffness: 340, damping: 32 }}
       className={`absolute left-0 right-0 bottom-[66px] rounded-t-3xl border-t p-4 shadow-[0_-12px_40px_rgba(0,0,0,0.65)] z-30 ${
         isLight
-          ? 'bg-white/95 border-slate-200 text-slate-900'
-          : 'bg-[#141923]/95 border-[#282C37] text-white'
-      } backdrop-blur-md`}
+          ? 'bg-white border-slate-200 text-slate-900'
+          : 'bg-[#141923] border-[#232936] text-white'
+      }`}
     >
       <div
         role="button"

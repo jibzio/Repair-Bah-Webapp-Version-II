@@ -125,12 +125,12 @@ export const ConsolePinGateModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-[65] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[65] bg-black/75 flex items-center justify-center p-4">
       <div
         className={`w-full max-w-[380px] rounded-3xl border p-6 text-center shadow-2xl ${
           isLight
             ? 'bg-white border-slate-200 text-slate-900'
-            : 'bg-[#141923] border-[#282C37] text-white'
+            : 'bg-[#141923] border-[#232936] text-white'
         }`}
       >
         <div className="flex justify-end">
@@ -223,6 +223,9 @@ export const ConsolePinGateModal: React.FC = () => {
 export const MechanicConsoleScreen: React.FC = () => {
   const { state, dispatch, notify } = useApp();
   const isLight = state.displayMode === 'sunlight';
+  const activeVehicle =
+    state.vehicles.find((v) => v.id === state.activeVehicleId) ||
+    state.vehicles[0];
   const [mechPin, setMechPin] = useState('');
   const [claiming, setClaiming] = useState(false);
   const [newItemDesc, setNewItemDesc] = useState('Ignition Coil Assembly');
@@ -410,21 +413,24 @@ export const MechanicConsoleScreen: React.FC = () => {
         className={`rounded-2xl border p-4 mb-4 ${
           isLight
             ? 'bg-white border-slate-200'
-            : 'bg-[#181C24] border-red-500/40'
+            : 'bg-[#141923] border-red-500/40'
         }`}
       >
         <div className="flex items-center justify-between mb-2">
-          <span className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-black">
-            ACTIVE SOS • {formatTicketCode(state.activeJobId)}
+          <span className="px-2 py-0.5 rounded bg-[#DC2626] text-white text-[10px] font-extrabold font-mono">
+            ACTIVE SOS · {formatTicketCode(state.activeJobId)}
           </span>
-          <span className="text-xs font-mono text-gray-400">
+          <span className="text-xs font-mono text-slate-400">
             Stage {state.rescueStage}/10
           </span>
         </div>
-        <h3 className="font-black text-sm">
-          Ahmad • Perodua Myvi (SAB 8821 X)
+        <h3 className="font-extrabold text-sm">
+          {state.userProfile.fullName} ·{' '}
+          {activeVehicle
+            ? `${activeVehicle.makeModel} (${activeVehicle.plate})`
+            : 'Unregistered Vehicle (GUEST-SOS)'}
         </h3>
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className="text-xs text-slate-400 mt-0.5">
           {state.pinnedLocation.address}
         </p>
         <p className="text-xs font-bold text-red-400 mt-1">
@@ -436,7 +442,7 @@ export const MechanicConsoleScreen: React.FC = () => {
           <button
             disabled={claiming}
             onClick={handleAtomicClaim}
-            className="py-2.5 rounded-xl bg-red-600 text-white font-black text-xs disabled:opacity-60"
+            className="py-2.5 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-extrabold text-xs disabled:opacity-60 active:scale-[0.99] transition-all"
           >
             {claiming
               ? 'CLAIMING...'
@@ -644,7 +650,10 @@ export const TowConsoleScreen: React.FC = () => {
 export const WorkshopConsoleScreen: React.FC = () => {
   const { state, dispatch, notify } = useApp();
   const isLight = state.displayMode === 'sunlight';
-  const [posPlate, setPosPlate] = useState('SAB 8821 X');
+  const activeVehicle =
+    state.vehicles.find((v) => v.id === state.activeVehicleId) ||
+    state.vehicles[0];
+  const [posPlate, setPosPlate] = useState(activeVehicle?.plate || 'GUEST-SOS');
   const [posAmount, setPosAmount] = useState('416.20');
 
   const issueCounterPdf = () => {

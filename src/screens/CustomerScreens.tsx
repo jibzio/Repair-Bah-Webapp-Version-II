@@ -3,6 +3,7 @@ import {
   Activity,
   Battery,
   Bluetooth,
+  Car,
   CheckCircle2,
   Database,
   Gauge,
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Sun,
   Thermometer,
+  UserPlus,
   X,
   Zap,
 } from 'lucide-react';
@@ -92,12 +94,12 @@ export const DigitalGarageScreen: React.FC = () => {
     const cleanVin = vin.trim().toUpperCase();
     if (!/^[A-Z]{1,3}\s?\d{1,4}\s?[A-Z]{0,2}$/.test(cleanPlate)) {
       notify(
-        'Invalid Malaysian JPJ Plate format (e.g. SAB 8821 X)',
+        'Invalid Malaysian JPJ Plate format (e.g. SAB 1234 A)',
         'error'
       );
       return;
     }
-    if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(cleanVin)) {
+    if (cleanVin && !/^[A-HJ-NPR-Z0-9]{17}$/.test(cleanVin)) {
       notify(
         'ISO 3779 VIN must be 17 alphanumeric chars (excluding I, O, Q)',
         'error'
@@ -108,13 +110,13 @@ export const DigitalGarageScreen: React.FC = () => {
       type: 'ADD_VEHICLE',
       payload: {
         id: `v-${Date.now()}`,
-        makeModel: makeModel.trim() || 'Perodua Ativa 1.0L Turbo',
-        variant: 'AV CVT',
+        makeModel: makeModel.trim() || 'Perodua Bezza 1.3X',
+        variant: 'Sabah Registered Fleet',
         plate: cleanPlate,
-        vin: cleanVin,
-        year: 2024,
-        jpjVerified: true,
-        roadtaxExpiry: '18 Nov 2027',
+        vin: cleanVin || 'PENDING-JPJ-SYNC',
+        year: new Date().getFullYear(),
+        jpjVerified: Boolean(cleanVin),
+        roadtaxExpiry: 'Active',
       },
     });
     setShowAddForm(false);
@@ -124,6 +126,16 @@ export const DigitalGarageScreen: React.FC = () => {
     notify(`Added ${cleanPlate} to Sabah Digital Garage`, 'success');
   };
 
+  const cardClass = isLight
+    ? 'bg-white border-slate-200 text-slate-900'
+    : 'bg-[#141923] border-[#232936] text-white';
+  const labelSurface = isLight ? 'bg-white' : 'bg-[#141923]';
+  const inputBoxClass = `relative rounded-xl border transition-colors ${
+    isLight
+      ? 'bg-white border-slate-300 focus-within:border-[#DC2626]'
+      : 'bg-[#181C24] border-[#232936] focus-within:border-[#DC2626]'
+  }`;
+
   return (
     <div className="flex-1 px-4 pt-3 pb-24 overflow-y-auto">
       <ScreenTopBar
@@ -132,122 +144,212 @@ export const DigitalGarageScreen: React.FC = () => {
         rightSlot={
           <button
             onClick={() => setShowAddForm((s) => !s)}
-            className="px-3 py-2 rounded-xl bg-red-600 text-white text-xs font-bold flex items-center gap-1"
+            className="px-3.5 py-2 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white text-xs font-bold flex items-center gap-1 active:scale-[0.99] transition-all"
           >
             <Plus className="w-3.5 h-3.5" /> Add
           </button>
         }
       />
 
-      <div className="flex gap-2 overflow-x-auto pb-2 mb-4 no-scrollbar">
-        {state.vehicles.map((v) => {
-          const active = v.id === activeVehicle.id;
-          return (
-            <button
-              key={v.id}
-              onClick={() =>
-                dispatch({ type: 'SELECT_VEHICLE', payload: v.id })
-              }
-              className={`shrink-0 px-3.5 py-2.5 rounded-xl border text-left ${
-                active
-                  ? 'border-red-500 bg-red-600/15'
-                  : isLight
-                  ? 'bg-white border-slate-200'
-                  : 'bg-[#181C24] border-[#282C37]'
-              }`}
-            >
-              <div className="text-xs font-black font-mono">{v.plate}</div>
-              <div className="text-[11px] text-gray-400">{v.makeModel}</div>
-            </button>
-          );
-        })}
-      </div>
+      {state.vehicles.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 no-scrollbar">
+          {state.vehicles.map((v) => {
+            const active = activeVehicle ? v.id === activeVehicle.id : false;
+            return (
+              <button
+                key={v.id}
+                onClick={() =>
+                  dispatch({ type: 'SELECT_VEHICLE', payload: v.id })
+                }
+                className={`shrink-0 px-3.5 py-2.5 rounded-xl border text-left transition-colors ${
+                  active
+                    ? 'border-[#DC2626] bg-red-600/15'
+                    : isLight
+                    ? 'bg-white border-slate-200'
+                    : 'bg-[#141923] border-[#232936]'
+                }`}
+              >
+                <div className="text-xs font-extrabold font-mono">{v.plate}</div>
+                <div
+                  className={`text-[11px] ${
+                    isLight ? 'text-slate-600' : 'text-slate-400'
+                  }`}
+                >
+                  {v.makeModel}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {showAddForm && (
         <form
           onSubmit={handleAddVehicle}
-          className={`rounded-2xl border p-4 mb-4 space-y-3 ${
-            isLight
-              ? 'bg-white border-slate-200'
-              : 'bg-[#181C24] border-[#282C37]'
-          }`}
+          className={`rounded-2xl border p-4 mb-4 space-y-4 ${cardClass}`}
         >
-          <h3 className="text-xs font-black uppercase text-red-400">
+          <h3 className="text-xs font-extrabold uppercase tracking-wider text-red-500">
             Register Sabah Vehicle (JPJ + ISO 3779 VIN)
           </h3>
-          <input
-            type="text"
-            placeholder="Make & Model (e.g. Perodua Bezza 1.3X)"
-            value={makeModel}
-            onChange={(e) => setMakeModel(e.target.value)}
-            required
-            className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-gray-700 text-xs outline-none"
-          />
-          <input
-            type="text"
-            placeholder="JPJ Plate (e.g. SAB 5512 K)"
-            value={plate}
-            onChange={(e) => setPlate(e.target.value)}
-            required
-            className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-gray-700 text-xs font-mono uppercase outline-none"
-          />
-          <input
-            type="text"
-            maxLength={17}
-            placeholder="17-Char ISO 3779 VIN (e.g. PM2B300S000551234)"
-            value={vin}
-            onChange={(e) => setVin(e.target.value)}
-            required
-            className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-gray-700 text-xs font-mono uppercase outline-none"
-          />
+          <div className={inputBoxClass}>
+            <label
+              className={`absolute -top-2 left-3 px-1 text-[10px] font-semibold ${labelSurface} ${
+                isLight ? 'text-slate-600' : 'text-slate-400'
+              }`}
+            >
+              Make &amp; Model
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Perodua Bezza 1.3X"
+              value={makeModel}
+              onChange={(e) => setMakeModel(e.target.value)}
+              required
+              className="w-full px-3.5 py-2.5 bg-transparent text-xs outline-none"
+            />
+          </div>
+          <div className={inputBoxClass}>
+            <label
+              className={`absolute -top-2 left-3 px-1 text-[10px] font-semibold ${labelSurface} ${
+                isLight ? 'text-slate-600' : 'text-slate-400'
+              }`}
+            >
+              JPJ Registration Plate
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. SAB 1234 A"
+              value={plate}
+              onChange={(e) => setPlate(e.target.value)}
+              required
+              className="w-full px-3.5 py-2.5 bg-transparent text-xs font-mono uppercase outline-none"
+            />
+          </div>
+          <div className={inputBoxClass}>
+            <label
+              className={`absolute -top-2 left-3 px-1 text-[10px] font-semibold ${labelSurface} ${
+                isLight ? 'text-slate-600' : 'text-slate-400'
+              }`}
+            >
+              17-Char ISO 3779 VIN (Optional)
+            </label>
+            <input
+              type="text"
+              maxLength={17}
+              placeholder="e.g. PM2B300S000551234"
+              value={vin}
+              onChange={(e) => setVin(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-transparent text-xs font-mono uppercase outline-none"
+            />
+          </div>
           <button
             type="submit"
-            className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
+            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs active:scale-[0.99] transition-all"
           >
-            Validate & Save Vehicle
+            Validate &amp; Save Vehicle
           </button>
         </form>
       )}
 
-      <div
-        className={`rounded-2xl border p-4 mb-4 ${
-          isLight
-            ? 'bg-white border-slate-200'
-            : 'bg-gradient-to-br from-[#1B2230] to-[#141923] border-[#282C37]'
-        }`}
-      >
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-black mb-1">
-              <ShieldCheck className="w-3 h-3" /> JPJ & PUSPAKOM VERIFIED
-            </span>
-            <h2 className="text-lg font-black">{activeVehicle.makeModel}</h2>
-            <p className="text-xs text-gray-400">{activeVehicle.variant}</p>
+      {activeVehicle ? (
+        <div className={`rounded-2xl border p-4 mb-4 ${cardClass}`}>
+          <div className="flex items-start justify-between mb-3 gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-500 mb-1">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {activeVehicle.jpjVerified
+                    ? 'JPJ & PUSPAKOM Verified'
+                    : 'Sabah Fleet Registered'}
+                </span>
+              </div>
+              <h2 className="text-lg font-extrabold truncate">
+                {activeVehicle.makeModel}
+              </h2>
+              <p
+                className={`text-xs ${
+                  isLight ? 'text-slate-600' : 'text-slate-400'
+                }`}
+              >
+                {activeVehicle.variant}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <div
+                className={`px-2.5 py-1 rounded-lg border font-mono text-xs font-extrabold ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200 text-slate-900'
+                    : 'bg-[#181C24] border-[#232936] text-white'
+                }`}
+              >
+                {activeVehicle.plate}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1 font-mono">
+                Exp: {activeVehicle.roadtaxExpiry}
+              </div>
+            </div>
           </div>
-          <div className="text-right">
-            <div className="px-2.5 py-1 rounded-lg bg-black/40 border border-gray-700 font-mono text-xs font-black">
-              {activeVehicle.plate}
-            </div>
-            <div className="text-[10px] text-gray-400 mt-1">
-              Exp: {activeVehicle.roadtaxExpiry}
-            </div>
+          <div className="text-[11px] font-mono text-slate-400 mb-3">
+            VIN: {activeVehicle.vin}
+          </div>
+          <button
+            onClick={handleBleScan}
+            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
+          >
+            <Bluetooth className="w-4 h-4" />
+            {obdConnected
+              ? 'ELM327 OBD-II Live Stream Active'
+              : 'Scan ELM327 OBD-II Bluetooth'}
+          </button>
+        </div>
+      ) : (
+        <div className={`rounded-2xl border p-5 mb-4 text-center ${cardClass}`}>
+          <div
+            className={`w-12 h-12 rounded-2xl border mx-auto mb-3 flex items-center justify-center ${
+              isLight
+                ? 'bg-slate-50 border-slate-200 text-slate-500'
+                : 'bg-[#181C24] border-[#232936] text-slate-400'
+            }`}
+          >
+            <Car className="w-6 h-6" />
+          </div>
+          <h2 className="text-sm font-extrabold">No Vehicle Registered Yet</h2>
+          <p
+            className={`text-xs mt-1 mb-4 ${
+              isLight ? 'text-slate-600' : 'text-slate-400'
+            }`}
+          >
+            Add your vehicle plate for faster roadside patrol matching, or
+            register an account to save your Sabah fleet.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAddForm(true)}
+              className="flex-1 py-2.5 px-3 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs active:scale-[0.99] transition-all"
+            >
+              + Add Vehicle Plate
+            </button>
+            {state.userProfile.isGuest && (
+              <button
+                type="button"
+                onClick={() =>
+                  dispatch({ type: 'SET_AUTH_MODAL', payload: true })
+                }
+                className={`flex-1 py-2.5 px-3 rounded-xl border font-bold text-xs ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-300 text-slate-800'
+                    : 'bg-[#181C24] border-[#232936] text-slate-200'
+                }`}
+              >
+                Register / Sign In
+              </button>
+            )}
           </div>
         </div>
-        <div className="text-[11px] font-mono text-gray-400 mb-3">
-          VIN: {activeVehicle.vin}
-        </div>
-        <button
-          onClick={handleBleScan}
-          className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2"
-        >
-          <Bluetooth className="w-4 h-4" />
-          {obdConnected
-            ? 'ELM327 OBD-II Live Stream Active'
-            : 'Scan ELM327 OBD-II Bluetooth'}
-        </button>
-      </div>
+      )}
 
-      <h3 className="text-xs font-black uppercase tracking-wider text-gray-400 mb-2.5">
+      <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2.5">
         Live ECU Telemetry (PID Mode 01)
       </h3>
       <div className="grid grid-cols-2 gap-3">
@@ -281,19 +383,12 @@ export const DigitalGarageScreen: React.FC = () => {
             color: 'text-blue-400',
           },
         ].map((g, i) => (
-          <div
-            key={i}
-            className={`rounded-2xl border p-3.5 ${
-              isLight
-                ? 'bg-white border-slate-200'
-                : 'bg-[#181C24] border-[#282C37]'
-            }`}
-          >
-            <div className="flex items-center justify-between text-gray-400 mb-1.5">
+          <div key={i} className={`rounded-2xl border p-3.5 ${cardClass}`}>
+            <div className="flex items-center justify-between text-slate-400 mb-1.5">
               <span className="text-[11px] font-semibold">{g.label}</span>
               <g.icon className={`w-4 h-4 ${g.color}`} />
             </div>
-            <div className="text-2xl font-black font-mono">{g.value}</div>
+            <div className="text-2xl font-extrabold font-mono">{g.value}</div>
             <div className={`text-[10px] font-bold mt-0.5 ${g.color}`}>
               {g.unit}
             </div>
@@ -315,22 +410,48 @@ export const WalletScreen: React.FC = () => {
         subtitle="BNM-Compliant Escrow & FPX Top-Up"
       />
 
-      <div className="rounded-3xl p-5 mb-5 text-white shadow-xl bg-gradient-to-br from-emerald-700 via-emerald-800 to-teal-950 border border-emerald-400/30">
+      <div
+        className={`rounded-3xl p-5 mb-5 border ${
+          isLight
+            ? 'bg-white border-slate-200 text-slate-900'
+            : 'bg-[#141923] border-[#232936] text-white'
+        }`}
+      >
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-200">
+          <span className="text-xs font-bold uppercase tracking-wider text-emerald-500">
             Protected Vault Balance
           </span>
-          <span className="px-2 py-0.5 rounded-full bg-black/30 text-[10px] font-mono">
+          <span
+            className={`text-[11px] font-mono font-semibold ${
+              isLight ? 'text-slate-500' : 'text-slate-400'
+            }`}
+          >
             {state.vaultStatus}
           </span>
         </div>
-        <div className="text-4xl font-black font-mono my-2">
+        <div className="text-4xl font-extrabold font-mono my-2">
           RM {state.vaultBalance.toFixed(2)}
         </div>
-        <p className="text-[11px] text-emerald-200/80 mb-4">
+        <p
+          className={`text-[11px] mb-4 ${
+            isLight ? 'text-slate-600' : 'text-slate-400'
+          }`}
+        >
           Funds are held in escrow and only released after your Stage 9
           handover signature.
         </p>
+
+        {state.userProfile.isGuest && (
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'SET_AUTH_MODAL', payload: true })}
+            className="w-full mb-3 py-2.5 px-3 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs flex items-center justify-center gap-1.5 active:scale-[0.99] transition-all"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            Register Account to Claim RM 20.00 Welcome Credit
+          </button>
+        )}
+
         <div className="grid grid-cols-3 gap-2">
           {[50, 100, 200].map((amt) => (
             <button
@@ -342,7 +463,11 @@ export const WalletScreen: React.FC = () => {
                 });
                 notify(`Topped up RM ${amt}.00 via FPX`, 'success');
               }}
-              className="py-2.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 font-black text-xs"
+              className={`py-2.5 rounded-xl border font-extrabold text-xs font-mono transition-colors ${
+                isLight
+                  ? 'bg-slate-50 border-slate-200 text-slate-900 hover:bg-slate-100'
+                  : 'bg-[#181C24] border-[#232936] text-white hover:border-emerald-500/50'
+              }`}
             >
               +RM {amt}
             </button>
@@ -350,41 +475,54 @@ export const WalletScreen: React.FC = () => {
         </div>
       </div>
 
-      <h3 className="text-xs font-black uppercase tracking-wider text-gray-400 mb-3">
-        Escrow & FPX Ledger
+      <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-3">
+        Escrow &amp; FPX Ledger
       </h3>
-      <div className="space-y-2.5">
-        {state.ledger.map((item) => (
-          <div
-            key={item.id}
-            className={`rounded-2xl border p-3.5 flex items-center justify-between gap-3 ${
-              isLight
-                ? 'bg-white border-slate-200'
-                : 'bg-[#181C24] border-[#282C37]'
-            }`}
-          >
-            <div className="min-w-0">
-              <div className="text-xs font-bold truncate">{item.title}</div>
-              <div className="text-[10px] text-gray-400 font-mono mt-0.5">
-                {item.timestamp} • {item.ref}
-              </div>
-            </div>
+      {state.ledger.length === 0 ? (
+        <div
+          className={`rounded-2xl border p-5 text-center text-xs ${
+            isLight
+              ? 'bg-white border-slate-200 text-slate-500'
+              : 'bg-[#141923] border-[#232936] text-slate-400'
+          }`}
+        >
+          No escrow or FPX transactions yet. Register or top up via FPX to
+          initialize your vault ledger.
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {state.ledger.map((item) => (
             <div
-              className={`font-mono font-black text-xs shrink-0 ${
-                item.type === 'CREDIT'
-                  ? 'text-emerald-400'
-                  : item.type === 'RESERVE'
-                  ? 'text-amber-400'
-                  : 'text-red-400'
+              key={item.id}
+              className={`rounded-2xl border p-3.5 flex items-center justify-between gap-3 ${
+                isLight
+                  ? 'bg-white border-slate-200'
+                  : 'bg-[#141923] border-[#232936]'
               }`}
             >
-              {item.amount > 0
-                ? `+RM ${item.amount.toFixed(2)}`
-                : `-RM ${Math.abs(item.amount).toFixed(2)}`}
+              <div className="min-w-0">
+                <div className="text-xs font-bold truncate">{item.title}</div>
+                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                  {item.timestamp} · {item.ref}
+                </div>
+              </div>
+              <div
+                className={`font-mono font-extrabold text-xs shrink-0 ${
+                  item.type === 'CREDIT'
+                    ? 'text-emerald-500'
+                    : item.type === 'RESERVE'
+                    ? 'text-amber-400'
+                    : 'text-red-400'
+                }`}
+              >
+                {item.amount > 0
+                  ? `+RM ${item.amount.toFixed(2)}`
+                  : `-RM ${Math.abs(item.amount).toFixed(2)}`}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -392,16 +530,26 @@ export const WalletScreen: React.FC = () => {
 export const MarketplaceScreen: React.FC = () => {
   const { state, dispatch, notify } = useApp();
   const isLight = state.displayMode === 'sunlight';
-  const [onlyMyviFit, setOnlyMyviFit] = useState(false);
+  const activeVehicle =
+    state.vehicles.find((v) => v.id === state.activeVehicleId) ||
+    state.vehicles[0];
+  const [onlyVehicleFit, setOnlyVehicleFit] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [fulfillment, setFulfillment] = useState<'EXPRESS_60M' | 'BAY_SLOT'>(
     'EXPRESS_60M'
   );
   const [fpxBank, setFpxBank] = useState('Maybank2u');
 
-  const visibleParts = onlyMyviFit
-    ? MARKETPLACE_PARTS.filter((p) => p.myviFit)
-    : MARKETPLACE_PARTS;
+  useEffect(() => {
+    if (!activeVehicle && onlyVehicleFit) {
+      setOnlyVehicleFit(false);
+    }
+  }, [activeVehicle, onlyVehicleFit]);
+
+  const visibleParts =
+    onlyVehicleFit && activeVehicle
+      ? MARKETPLACE_PARTS.filter((p) => p.myviFit)
+      : MARKETPLACE_PARTS;
 
   const cartLines: QuoteLineItem[] = useMemo(() => {
     const lines: QuoteLineItem[] = state.cart.map((c) => ({
@@ -441,29 +589,41 @@ export const MarketplaceScreen: React.FC = () => {
         rightSlot={
           <button
             onClick={() => setCheckoutOpen(true)}
-            className="relative px-3 py-2 rounded-xl bg-red-600 text-white text-xs font-bold flex items-center gap-1.5"
+            className="relative px-3.5 py-2 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white text-xs font-bold flex items-center gap-1.5 active:scale-[0.99] transition-all"
           >
             <ShoppingCart className="w-4 h-4" />
-            <span>{totalCount}</span>
+            <span className="font-mono">{totalCount}</span>
           </button>
         }
       />
 
-      <div className="flex items-center justify-between mb-4">
-        <button
-          onClick={() => setOnlyMyviFit((v) => !v)}
-          className={`px-3 py-1.5 rounded-full border text-xs font-bold flex items-center gap-1.5 ${
-            onlyMyviFit
-              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-              : isLight
-              ? 'bg-white border-slate-300 text-slate-700'
-              : 'bg-[#181C24] border-[#282C37] text-gray-300'
-          }`}
-        >
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          Myvi SAB 8821 X Fitment Only
-        </button>
-        <span className="text-[11px] text-gray-400">
+      <div className="flex items-center justify-between gap-2 mb-4">
+        {activeVehicle ? (
+          <button
+            onClick={() => setOnlyVehicleFit((v) => !v)}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 truncate transition-colors ${
+              onlyVehicleFit
+                ? 'bg-emerald-500/15 border-emerald-500 text-emerald-500'
+                : isLight
+                ? 'bg-white border-slate-300 text-slate-700'
+                : 'bg-[#141923] border-[#232936] text-slate-300'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
+              {activeVehicle.makeModel} ({activeVehicle.plate}) Fitment Only
+            </span>
+          </button>
+        ) : (
+          <span
+            className={`text-xs font-medium ${
+              isLight ? 'text-slate-600' : 'text-slate-400'
+            }`}
+          >
+            All Genuine Sabah Stock
+          </span>
+        )}
+        <span className="text-[11px] font-mono text-slate-400 shrink-0">
           {visibleParts.length} items
         </span>
       </div>
@@ -475,28 +635,30 @@ export const MarketplaceScreen: React.FC = () => {
             className={`rounded-2xl border p-4 flex items-center justify-between gap-3 ${
               isLight
                 ? 'bg-white border-slate-200'
-                : 'bg-[#181C24] border-[#282C37]'
+                : 'bg-[#141923] border-[#232936]'
             }`}
           >
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                  {part.category}
-                </span>
-                {part.myviFit && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
-                    ✓ Myvi Fit
-                  </span>
+              <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-slate-400 mb-1">
+                <span className="font-bold text-blue-400">{part.category}</span>
+                <span aria-hidden="true">·</span>
+                <span>{part.badge}</span>
+                {activeVehicle && part.myviFit && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-semibold text-emerald-500">
+                      Fits {activeVehicle.makeModel.split(' ')[0]}
+                    </span>
+                  </>
                 )}
-                <span className="text-[10px] text-gray-400">{part.badge}</span>
               </div>
               <h3 className="font-bold text-sm">{part.name}</h3>
-              <p className="text-[11px] text-gray-400 font-mono">
-                SKU: {part.sku} • {part.stock} in Kolombong HQ
+              <p className="text-[11px] text-slate-400 font-mono">
+                SKU: {part.sku} · {part.stock} in Kolombong HQ
               </p>
-              <div className="text-base font-black font-mono text-red-400 mt-1">
+              <div className="text-base font-extrabold font-mono text-red-500 mt-1">
                 RM {part.price.toFixed(2)}{' '}
-                <span className="text-[10px] font-sans text-gray-400">
+                <span className="text-[10px] font-sans font-normal text-slate-400">
                   (0% Parts SST)
                 </span>
               </div>
@@ -506,7 +668,7 @@ export const MarketplaceScreen: React.FC = () => {
                 dispatch({ type: 'ADD_TO_CART', payload: part });
                 notify(`Added ${part.name} to cart`, 'success');
               }}
-              className="px-3.5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shrink-0"
+              className="px-3.5 py-2.5 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs shrink-0 active:scale-[0.99] transition-all"
             >
               + Cart
             </button>
@@ -515,29 +677,34 @@ export const MarketplaceScreen: React.FC = () => {
       </div>
 
       {checkoutOpen && (
-        <div className="fixed inset-0 z-[65] bg-black/75 backdrop-blur-sm flex items-end justify-center">
+        <div className="fixed inset-0 z-[65] bg-black/75 flex items-end justify-center">
           <div
             className={`w-full max-w-[540px] rounded-t-3xl border-t p-5 max-h-[88dvh] overflow-y-auto ${
               isLight
                 ? 'bg-white border-slate-200 text-slate-900'
-                : 'bg-[#141923] border-[#282C37] text-white'
+                : 'bg-[#141923] border-[#232936] text-white'
             }`}
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-black text-base flex items-center gap-2">
+              <h3 className="font-extrabold text-base flex items-center gap-2">
                 <ShoppingBag className="w-4 h-4 text-red-500" />
                 Marketplace Escrow Checkout
               </h3>
               <button
                 onClick={() => setCheckoutOpen(false)}
-                className="p-1.5 rounded-full bg-gray-800 text-white"
+                aria-label="Close checkout"
+                className={`w-9 h-9 rounded-full border flex items-center justify-center ${
+                  isLight
+                    ? 'bg-slate-100 border-slate-200 text-slate-700'
+                    : 'bg-[#181C24] border-[#232936] text-slate-300'
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {state.cart.length === 0 ? (
-              <p className="text-xs text-gray-400 py-8 text-center">
+              <p className="text-xs text-slate-400 py-8 text-center">
                 Your spare parts cart is empty.
               </p>
             ) : (
@@ -546,13 +713,17 @@ export const MarketplaceScreen: React.FC = () => {
                   {state.cart.map((item) => (
                     <div
                       key={item.part.id}
-                      className="flex items-center justify-between p-3 rounded-xl bg-black/20 border border-gray-800"
+                      className={`flex items-center justify-between p-3 rounded-xl border ${
+                        isLight
+                          ? 'bg-slate-50 border-slate-200'
+                          : 'bg-[#181C24] border-[#232936]'
+                      }`}
                     >
                       <div className="min-w-0 pr-2">
                         <div className="text-xs font-bold truncate">
                           {item.part.name}
                         </div>
-                        <div className="text-[11px] font-mono text-gray-400">
+                        <div className="text-[11px] font-mono text-slate-400">
                           RM {item.part.price} × {item.qty}
                         </div>
                       </div>
@@ -564,7 +735,11 @@ export const MarketplaceScreen: React.FC = () => {
                               payload: { partId: item.part.id, delta: -1 },
                             })
                           }
-                          className="w-7 h-7 rounded-lg bg-gray-800 flex items-center justify-center"
+                          className={`w-8 h-8 rounded-lg border flex items-center justify-center ${
+                            isLight
+                              ? 'bg-white border-slate-300'
+                              : 'bg-[#141923] border-[#232936]'
+                          }`}
                         >
                           <Minus className="w-3 h-3" />
                         </button>
@@ -578,7 +753,11 @@ export const MarketplaceScreen: React.FC = () => {
                               payload: { partId: item.part.id, delta: 1 },
                             })
                           }
-                          className="w-7 h-7 rounded-lg bg-gray-800 flex items-center justify-center"
+                          className={`w-8 h-8 rounded-lg border flex items-center justify-center ${
+                            isLight
+                              ? 'bg-white border-slate-300'
+                              : 'bg-[#141923] border-[#232936]'
+                          }`}
                         >
                           <Plus className="w-3 h-3" />
                         </button>
@@ -592,14 +771,16 @@ export const MarketplaceScreen: React.FC = () => {
                     onClick={() => setFulfillment('EXPRESS_60M')}
                     className={`p-3 rounded-xl border text-left ${
                       fulfillment === 'EXPRESS_60M'
-                        ? 'border-red-500 bg-red-600/15'
-                        : 'border-gray-800'
+                        ? 'border-[#DC2626] bg-red-600/15'
+                        : isLight
+                        ? 'border-slate-200 bg-slate-50'
+                        : 'border-[#232936] bg-[#181C24]'
                     }`}
                   >
                     <div className="text-xs font-bold">
                       Roadside Express 60m
                     </div>
-                    <div className="text-[10px] text-gray-400">
+                    <div className="text-[10px] text-slate-400">
                       Mobile Van Fitment (RM 35)
                     </div>
                   </button>
@@ -607,25 +788,31 @@ export const MarketplaceScreen: React.FC = () => {
                     onClick={() => setFulfillment('BAY_SLOT')}
                     className={`p-3 rounded-xl border text-left ${
                       fulfillment === 'BAY_SLOT'
-                        ? 'border-red-500 bg-red-600/15'
-                        : 'border-gray-800'
+                        ? 'border-[#DC2626] bg-red-600/15'
+                        : isLight
+                        ? 'border-slate-200 bg-slate-50'
+                        : 'border-[#232936] bg-[#181C24]'
                     }`}
                   >
                     <div className="text-xs font-bold">Kolombong HQ Bay</div>
-                    <div className="text-[10px] text-gray-400">
+                    <div className="text-[10px] text-slate-400">
                       Reserved Lift Slot (RM 25)
                     </div>
                   </button>
                 </div>
 
                 <div className="mb-4">
-                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
                     Malaysian FPX Online Banking
                   </label>
                   <select
                     value={fpxBank}
                     onChange={(e) => setFpxBank(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl bg-[#181C24] border border-[#282C37] text-xs font-semibold text-white"
+                    className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold ${
+                      isLight
+                        ? 'bg-white border-slate-300 text-slate-900'
+                        : 'bg-[#181C24] border-[#232936] text-white'
+                    }`}
                   >
                     <option>Maybank2u</option>
                     <option>CIMB Clicks</option>
@@ -635,14 +822,18 @@ export const MarketplaceScreen: React.FC = () => {
                   </select>
                 </div>
 
-                <div className="space-y-1 text-xs border-t border-gray-800 pt-3 mb-4">
-                  <div className="flex justify-between text-gray-400">
+                <div
+                  className={`space-y-1 text-xs border-t pt-3 mb-4 ${
+                    isLight ? 'border-slate-200' : 'border-[#232936]'
+                  }`}
+                >
+                  <div className="flex justify-between text-slate-400">
                     <span>Parts Subtotal (0% SST)</span>
                     <span className="font-mono">
                       RM {cartTax.partsSubtotal.toFixed(2)}
                     </span>
                   </div>
-                  <div className="flex justify-between text-gray-400">
+                  <div className="flex justify-between text-slate-400">
                     <span>Installation Labor</span>
                     <span className="font-mono">
                       RM {cartTax.laborSubtotal.toFixed(2)}
@@ -654,9 +845,9 @@ export const MarketplaceScreen: React.FC = () => {
                       RM {cartTax.sstAmount.toFixed(2)}
                     </span>
                   </div>
-                  <div className="flex justify-between font-black text-sm pt-2">
+                  <div className="flex justify-between font-extrabold text-sm pt-2">
                     <span>TOTAL FPX ESCROW</span>
-                    <span className="font-mono text-emerald-400">
+                    <span className="font-mono text-emerald-500">
                       RM {cartTax.grandTotal.toFixed(2)}
                     </span>
                   </div>
@@ -673,9 +864,9 @@ export const MarketplaceScreen: React.FC = () => {
                       'success'
                     );
                   }}
-                  className="w-full py-3.5 rounded-2xl bg-emerald-600 text-white font-black text-xs"
+                  className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs active:scale-[0.99] transition-all"
                 >
-                  PAY VIA {fpxBank.toUpperCase()} & BOOK FITMENT
+                  PAY VIA {fpxBank.toUpperCase()} &amp; BOOK FITMENT
                 </button>
               </>
             )}
@@ -689,13 +880,24 @@ export const MarketplaceScreen: React.FC = () => {
 export const AiAssistantScreen: React.FC = () => {
   const { state, dispatch, notify } = useApp();
   const isLight = state.displayMode === 'sunlight';
+  const activeVehicle =
+    state.vehicles.find((v) => v.id === state.activeVehicleId) ||
+    state.vehicles[0];
+  const greetingName = state.userProfile.isGuest
+    ? 'Motorist'
+    : state.userProfile.fullName.split(' ')[0];
+
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<AiMessage[]>([
     {
       id: 'm0',
       role: 'assistant',
-      text: 'Selamat Sejahtera Ahmad! I am RepairBah AI Diagnostic Copilot for Perodua Myvi (SAB 8821 X). Describe your breakdown symptom (e.g., "clicking sound when starting", "overheating on Bukit Padang", or "flat tyre at Likas").',
+      text: `Selamat Sejahtera ${greetingName}! I am RepairBah AI Diagnostic Copilot${
+        activeVehicle
+          ? ` for ${activeVehicle.makeModel} (${activeVehicle.plate})`
+          : ''
+      }. Describe your breakdown symptom (e.g., "clicking sound when starting", "overheating on Bukit Padang", or "flat tyre at Likas").`,
       severity: 'LOW',
       likelyCause: 'Ready for OBD-II & Symptom Triage',
     },
@@ -714,7 +916,7 @@ export const AiAssistantScreen: React.FC = () => {
         text: 'Rapid relay clicking with dim cabin lights indicates a discharged or sulfated NS60LS 12V battery (< 11.2V). Avoid repeated cranking to protect the starter solenoid.',
         severity: 'HIGH',
         likelyCause: '12V Battery Cell Failure / Alternator Undercharge',
-        recommendedServiceId: 'battery_swap',
+        recommendedServiceId: 'mobile_mech',
       };
     }
     if (
@@ -723,10 +925,10 @@ export const AiAssistantScreen: React.FC = () => {
       low.includes('puncture')
     ) {
       return {
-        text: 'Pull onto a wide shoulder with hazard lights active. Our Mobile Tyre Unit carries 185/55 R15 Michelin XM2+ spares and torque wrenches.',
+        text: 'Pull onto a wide shoulder with hazard lights active. Our Sabah Mobile Patrol carries spare replacement kits and calibrated torque wrenches.',
         severity: 'MEDIUM',
         likelyCause: 'Sidewall Puncture / Rapid Pressure Loss',
-        recommendedServiceId: 'flat_tyre',
+        recommendedServiceId: 'mobile_mech',
       };
     }
     if (
@@ -736,23 +938,21 @@ export const AiAssistantScreen: React.FC = () => {
       low.includes('cvt')
     ) {
       return {
-        text: 'CRITICAL: Shut off the engine immediately to prevent cylinder head warpage or D-CVT belt slip. Do not open the radiator cap while pressurized.',
+        text: 'CRITICAL: Shut off the engine immediately to prevent cylinder head warpage or transmission belt slip. Do not open the radiator cap while pressurized.',
         severity: 'CRITICAL',
         likelyCause: 'Cooling System Loss / Transmission Protection',
-        recommendedServiceId: 'patrol_tow',
+        recommendedServiceId: 'tow_truck',
       };
     }
     return {
-      text: 'Based on Perodua Myvi 1.5L Dual VVT-i telemetry patterns, an on-site OBD-II scan and fuel/ignition inspection is recommended.',
+      text: `Based on Sabah roadside diagnostics for ${
+        activeVehicle?.makeModel || 'your vehicle'
+      }, an on-site OBD-II scan and fuel/ignition inspection is recommended.`,
       severity: 'MEDIUM',
       likelyCause: 'Ignition Coil / Fuel Trim Anomaly',
       recommendedServiceId: 'mobile_mech',
     };
   };
-
-  const activeVehicle =
-    state.vehicles.find((v) => v.id === state.activeVehicleId) ||
-    state.vehicles[0];
 
   const handleSend = async (customText?: string) => {
     const query = (customText ?? prompt).trim();
@@ -772,8 +972,8 @@ export const AiAssistantScreen: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query,
-          vehicle: activeVehicle?.makeModel || 'Perodua Myvi 1.5L',
-          plate: activeVehicle?.plate || 'SAB 8821 X',
+          vehicle: activeVehicle?.makeModel || 'Unregistered Vehicle',
+          plate: activeVehicle?.plate || 'GUEST-SOS',
           apiKeyOverride: state.geminiApiKey || undefined,
         }),
       });
@@ -819,7 +1019,7 @@ export const AiAssistantScreen: React.FC = () => {
     <div className="flex-1 flex flex-col px-4 pt-3 pb-24 overflow-hidden">
       <ScreenTopBar
         title="AI Breakdown Assistant"
-        subtitle="Gemini Automotive Triage • Sabah Edition"
+        subtitle="Gemini Automotive Triage · Sabah Edition"
       />
 
       <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2 no-scrollbar shrink-0">
@@ -831,10 +1031,10 @@ export const AiAssistantScreen: React.FC = () => {
           <button
             key={qp}
             onClick={() => handleSend(qp)}
-            className={`shrink-0 px-3 py-1.5 rounded-full border text-[11px] font-semibold ${
+            className={`shrink-0 px-3 py-1.5 rounded-lg border text-[11px] font-semibold ${
               isLight
                 ? 'bg-white border-slate-300 text-slate-700'
-                : 'bg-[#181C24] border-[#282C37] text-gray-300'
+                : 'bg-[#141923] border-[#232936] text-slate-300'
             }`}
           >
             {qp}
@@ -853,24 +1053,28 @@ export const AiAssistantScreen: React.FC = () => {
             <div
               className={`max-w-[88%] rounded-2xl p-3.5 text-xs leading-relaxed ${
                 m.role === 'user'
-                  ? 'bg-red-600 text-white font-semibold'
+                  ? 'bg-[#DC2626] text-white font-semibold'
                   : isLight
                   ? 'bg-white border border-slate-200 text-slate-900'
-                  : 'bg-[#181C24] border border-[#282C37] text-gray-200'
+                  : 'bg-[#141923] border border-[#232936] text-slate-200'
               }`}
             >
               {m.role === 'assistant' && m.severity && (
-                <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-gray-800">
-                  <span className="font-bold text-[10px] text-gray-400">
+                <div
+                  className={`flex items-center justify-between gap-2 mb-2 pb-1.5 border-b ${
+                    isLight ? 'border-slate-200' : 'border-[#232936]'
+                  }`}
+                >
+                  <span className="font-bold text-[10px] text-slate-400">
                     {m.likelyCause}
                   </span>
                   <span
-                    className={`px-2 py-0.5 rounded text-[9px] font-black ${
+                    className={`text-[10px] font-extrabold font-mono ${
                       m.severity === 'CRITICAL'
-                        ? 'bg-red-600 text-white'
+                        ? 'text-red-500'
                         : m.severity === 'HIGH'
-                        ? 'bg-amber-500 text-black'
-                        : 'bg-emerald-500/20 text-emerald-400'
+                        ? 'text-amber-400'
+                        : 'text-emerald-500'
                     }`}
                   >
                     {m.severity}
@@ -888,7 +1092,7 @@ export const AiAssistantScreen: React.FC = () => {
                     dispatch({ type: 'SET_RESCUE_STAGE', payload: 1 });
                     notify(`Pre-selected ${svc.nameEn} on SOS Map`, 'info');
                   }}
-                  className="mt-3 w-full py-2 px-3 rounded-xl bg-red-600 text-white font-bold text-[11px] flex items-center justify-center gap-1.5"
+                  className="mt-3 w-full py-2.5 px-3 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-[11px] flex items-center justify-center gap-1.5 active:scale-[0.99] transition-all"
                 >
                   <Zap className="w-3.5 h-3.5" />
                   Dispatch Recommended SOS Unit
@@ -898,8 +1102,9 @@ export const AiAssistantScreen: React.FC = () => {
           </div>
         ))}
         {loading && (
-          <div className="text-xs text-gray-400 animate-pulse">
-            Analyzing Perodua Myvi telemetry & Sabah dispatch rules...
+          <div className="text-xs text-slate-400 animate-pulse">
+            Analyzing {activeVehicle?.makeModel || 'vehicle'} telemetry &amp;
+            Sabah dispatch rules...
           </div>
         )}
       </div>
@@ -916,15 +1121,16 @@ export const AiAssistantScreen: React.FC = () => {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe warning light or noise..."
-          className={`flex-1 px-4 py-3 rounded-2xl border text-xs outline-none ${
+          className={`flex-1 px-4 py-3 rounded-xl border text-xs outline-none focus:border-[#DC2626] ${
             isLight
               ? 'bg-white border-slate-300 text-slate-900'
-              : 'bg-[#181C24] border-[#282C37] text-white'
+              : 'bg-[#141923] border-[#232936] text-white'
           }`}
         />
         <button
           type="submit"
-          className="w-11 h-11 rounded-2xl bg-red-600 text-white flex items-center justify-center shrink-0"
+          aria-label="Send symptom"
+          className="w-11 h-11 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white flex items-center justify-center shrink-0 active:scale-[0.99] transition-all"
         >
           <Send className="w-4 h-4" />
         </button>
@@ -953,13 +1159,13 @@ export const DtcLibraryScreen: React.FC = () => {
       />
 
       <div
-        className={`flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border mb-4 ${
+        className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border mb-4 focus-within:border-[#DC2626] ${
           isLight
             ? 'bg-white border-slate-300'
-            : 'bg-[#181C24] border-[#282C37]'
+            : 'bg-[#141923] border-[#232936]'
         }`}
       >
-        <Search className="w-4 h-4 text-gray-400" />
+        <Search className="w-4 h-4 text-slate-400" />
         <input
           type="text"
           value={query}
@@ -976,28 +1182,32 @@ export const DtcLibraryScreen: React.FC = () => {
             className={`rounded-2xl border p-4 ${
               isLight
                 ? 'bg-white border-slate-200'
-                : 'bg-[#181C24] border-[#282C37]'
+                : 'bg-[#141923] border-[#232936]'
             }`}
           >
             <div className="flex items-center justify-between mb-1.5">
-              <span className="font-mono font-black text-sm text-red-400">
+              <span className="font-mono font-extrabold text-sm text-red-500">
                 {dtc.code}
               </span>
               <span
-                className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                className={`text-[10px] font-extrabold font-mono ${
                   dtc.severity === 'CRITICAL'
-                    ? 'bg-red-600 text-white'
+                    ? 'text-red-500'
                     : dtc.severity === 'HIGH'
-                    ? 'bg-amber-500 text-black'
-                    : 'bg-blue-500/20 text-blue-400'
+                    ? 'text-amber-400'
+                    : 'text-blue-400'
                 }`}
               >
                 {dtc.severity}
               </span>
             </div>
             <h3 className="font-bold text-xs">{dtc.title}</h3>
-            <p className="text-[11px] text-gray-400 mt-1">{dtc.symptoms}</p>
-            <ul className="mt-2 space-y-1 text-[11px] text-gray-300 list-disc pl-4">
+            <p className="text-[11px] text-slate-400 mt-1">{dtc.symptoms}</p>
+            <ul
+              className={`mt-2 space-y-1 text-[11px] list-disc pl-4 ${
+                isLight ? 'text-slate-700' : 'text-slate-300'
+              }`}
+            >
               {dtc.steps.map((st, idx) => (
                 <li key={idx}>{st}</li>
               ))}
@@ -1014,7 +1224,7 @@ export const DtcLibraryScreen: React.FC = () => {
                   'info'
                 );
               }}
-              className="mt-3 w-full py-2 rounded-xl bg-red-600/20 border border-red-500/40 text-red-400 font-bold text-xs"
+              className="mt-3 w-full py-2.5 rounded-xl bg-red-600/15 border border-red-500/35 text-red-400 font-bold text-xs"
             >
               Pre-Fill SOS Dispatch ({dtc.code})
             </button>
@@ -1044,20 +1254,47 @@ export const AppSettingsScreen: React.FC = () => {
     }
   };
 
+  const cardClass = isLight
+    ? 'bg-white border-slate-200'
+    : 'bg-[#141923] border-[#232936]';
+
   return (
     <div className="flex-1 px-4 pt-3 pb-24 overflow-y-auto">
       <ScreenTopBar
         title="App Settings"
-        subtitle="Display Contrast, Localization & Cloud Bridge"
+        subtitle="Account, Display Contrast & Cloud Bridge"
       />
 
       <div className="space-y-3">
         <div
-          className={`rounded-2xl border p-4 flex items-center justify-between ${
-            isLight
-              ? 'bg-white border-slate-200'
-              : 'bg-[#181C24] border-[#282C37]'
-          }`}
+          className={`rounded-2xl border p-4 flex items-center justify-between gap-2 ${cardClass}`}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-red-600/15 border border-red-500/30 flex items-center justify-center font-extrabold text-xs text-red-400 shrink-0">
+              {state.userProfile.initials}
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-bold truncate">
+                {state.userProfile.fullName}
+              </div>
+              <div className="text-[11px] text-slate-400 truncate">
+                {state.userProfile.isGuest
+                  ? 'Guest Session · Register for RM 20 credit'
+                  : state.userProfile.email}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'SET_AUTH_MODAL', payload: true })}
+            className="px-3.5 py-2 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs shrink-0 active:scale-[0.99] transition-all"
+          >
+            {state.userProfile.isGuest ? 'Register' : 'Manage'}
+          </button>
+        </div>
+
+        <div
+          className={`rounded-2xl border p-4 flex items-center justify-between ${cardClass}`}
         >
           <div className="flex items-center gap-3">
             {isLight ? (
@@ -1069,10 +1306,10 @@ export const AppSettingsScreen: React.FC = () => {
               <div className="text-xs font-bold">
                 Display Mode (Sunlight High-Contrast)
               </div>
-              <div className="text-[11px] text-gray-400">
+              <div className="text-[11px] text-slate-400">
                 {isLight
                   ? 'High-Contrast Daylight (#F8FAFC)'
-                  : 'Dark Obsidian (#0E1117)'}
+                  : 'Dark Obsidian (#0B0F17)'}
               </div>
             </div>
           </div>
@@ -1086,26 +1323,22 @@ export const AppSettingsScreen: React.FC = () => {
                 'info'
               );
             }}
-            className="px-3.5 py-2 rounded-xl bg-red-600 text-white font-bold text-xs"
+            className="px-3.5 py-2 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs active:scale-[0.99] transition-all"
           >
             Toggle
           </button>
         </div>
 
         <div
-          className={`rounded-2xl border p-4 flex items-center justify-between ${
-            isLight
-              ? 'bg-white border-slate-200'
-              : 'bg-[#181C24] border-[#282C37]'
-          }`}
+          className={`rounded-2xl border p-4 flex items-center justify-between ${cardClass}`}
         >
           <div className="flex items-center gap-3">
-            <Globe className="w-5 h-5 text-emerald-400" />
+            <Globe className="w-5 h-5 text-emerald-500" />
             <div>
               <div className="text-xs font-bold">
                 Language / Bahasa Malaysia
               </div>
-              <div className="text-[11px] text-gray-400">
+              <div className="text-[11px] text-slate-400">
                 Active:{' '}
                 {state.language === 'EN' ? 'English (MY)' : 'Bahasa Malaysia'}
               </div>
@@ -1123,28 +1356,24 @@ export const AppSettingsScreen: React.FC = () => {
                 'info'
               );
             }}
-            className="px-3.5 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs"
+            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs active:scale-[0.99] transition-all"
           >
             {state.language === 'EN' ? 'Switch to BM' : 'Switch to EN'}
           </button>
         </div>
 
         <div
-          className={`rounded-2xl border p-4 flex items-center justify-between ${
-            isLight
-              ? 'bg-white border-slate-200'
-              : 'bg-[#181C24] border-[#282C37]'
-          }`}
+          className={`rounded-2xl border p-4 flex items-center justify-between ${cardClass}`}
         >
           <div className="flex items-center gap-3">
             <Database className="w-5 h-5 text-purple-400" />
             <div>
               <div className="text-xs font-bold">
-                Supabase Realtime & PostgREST
+                Supabase Realtime &amp; PostgREST
               </div>
-              <div className="text-[11px] text-gray-400 font-mono">
+              <div className="text-[11px] text-slate-400 font-mono">
                 {state.realtimeConnected
-                  ? 'Connected • 2.5s Sync'
+                  ? 'Connected · 2.5s Sync'
                   : 'Offline Queue'}
               </div>
             </div>
@@ -1153,19 +1382,17 @@ export const AppSettingsScreen: React.FC = () => {
             onClick={() =>
               dispatch({ type: 'SET_SUPABASE_DIALOG', payload: true })
             }
-            className="px-3.5 py-2 rounded-xl bg-[#242A36] text-white font-bold text-xs"
+            className={`px-3.5 py-2 rounded-xl border font-bold text-xs ${
+              isLight
+                ? 'bg-slate-100 border-slate-300 text-slate-800'
+                : 'bg-[#181C24] border-[#232936] text-white'
+            }`}
           >
             Inspect
           </button>
         </div>
 
-        <div
-          className={`rounded-2xl border p-4 space-y-2 ${
-            isLight
-              ? 'bg-white border-slate-200'
-              : 'bg-[#181C24] border-[#282C37]'
-          }`}
-        >
+        <div className={`rounded-2xl border p-4 space-y-2.5 ${cardClass}`}>
           <label className="text-xs font-bold flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-amber-400" />
             Optional Gemini API Key (AI Copilot)
@@ -1176,7 +1403,11 @@ export const AppSettingsScreen: React.FC = () => {
               value={geminiKeyInput}
               onChange={(e) => setGeminiKeyInput(e.target.value)}
               placeholder="Leave blank for runtime / Sabah offline engine"
-              className="flex-1 px-3 py-2 rounded-xl bg-black/25 border border-gray-700 text-xs outline-none"
+              className={`flex-1 px-3 py-2 rounded-xl border text-xs outline-none focus:border-[#DC2626] ${
+                isLight
+                  ? 'bg-slate-50 border-slate-300 text-slate-900'
+                  : 'bg-[#181C24] border-[#232936] text-white'
+              }`}
             />
             <button
               onClick={() => {
@@ -1190,7 +1421,7 @@ export const AppSettingsScreen: React.FC = () => {
                 });
                 notify('Saved AI Configuration', 'success');
               }}
-              className="px-4 py-2 rounded-xl bg-red-600 text-white font-bold text-xs"
+              className="px-4 py-2 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs active:scale-[0.99] transition-all"
             >
               Save
             </button>
@@ -1202,16 +1433,16 @@ export const AppSettingsScreen: React.FC = () => {
             className={`rounded-2xl border p-4 space-y-3 ${
               isLight
                 ? 'bg-amber-50 border-amber-300 text-slate-900'
-                : 'bg-[#181C24] border-amber-500/40 text-white'
+                : 'bg-[#141923] border-amber-500/40 text-white'
             }`}
           >
             <div className="flex items-center justify-between gap-2">
               <div>
-                <div className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                <div className="text-xs font-extrabold text-amber-400 uppercase tracking-wider">
                   Admin Demo Mode
                 </div>
-                <div className="text-[11px] text-gray-400">
-                  Shows 1-tap SOS, claim & arrival simulation controls
+                <div className="text-[11px] text-slate-400">
+                  Shows 1-tap SOS, claim &amp; arrival simulation controls
                 </div>
               </div>
               {(adminPinVerified || state.demoMode) && (
@@ -1227,10 +1458,10 @@ export const AppSettingsScreen: React.FC = () => {
                       'info'
                     );
                   }}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-black ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold ${
                     state.demoMode
                       ? 'bg-amber-500 text-black'
-                      : 'bg-[#242A36] text-gray-200 border border-gray-700'
+                      : 'bg-[#181C24] text-slate-200 border border-[#232936]'
                   }`}
                 >
                   {state.demoMode ? 'ON' : 'OFF'}
@@ -1247,7 +1478,11 @@ export const AppSettingsScreen: React.FC = () => {
                   value={adminPinInput}
                   onChange={(e) => setAdminPinInput(e.target.value)}
                   placeholder="Enter Admin PIN"
-                  className="flex-1 px-3 py-2 rounded-xl bg-black/25 border border-gray-700 text-xs font-mono outline-none"
+                  className={`flex-1 px-3 py-2 rounded-xl border text-xs font-mono outline-none ${
+                    isLight
+                      ? 'bg-white border-slate-300 text-slate-900'
+                      : 'bg-[#181C24] border-[#232936] text-white'
+                  }`}
                 />
                 <button
                   type="button"
@@ -1261,7 +1496,7 @@ export const AppSettingsScreen: React.FC = () => {
                       notify('Invalid Admin PIN', 'error');
                     }
                   }}
-                  className="px-4 py-2 rounded-xl bg-amber-500 text-black font-black text-xs"
+                  className="px-4 py-2 rounded-xl bg-amber-500 text-black font-extrabold text-xs"
                 >
                   Unlock
                 </button>
@@ -1274,7 +1509,7 @@ export const AppSettingsScreen: React.FC = () => {
           <button
             type="button"
             onClick={handleVersionTap}
-            className="text-[11px] font-mono text-gray-500 hover:text-gray-400 select-none"
+            className="text-[11px] font-mono text-slate-500 hover:text-slate-400 select-none"
           >
             RepairBah Sabah Live • v2.4
           </button>
