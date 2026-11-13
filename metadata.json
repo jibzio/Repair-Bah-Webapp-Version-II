@@ -1,0 +1,12 @@
+{
+  "name": "Remix RepairBah Sabah SOS Platform",
+  "description": "Sabah roadside emergency SOS, live dispatch, protected escrow vault, digital garage, spare parts marketplace, and workforce consoles.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
