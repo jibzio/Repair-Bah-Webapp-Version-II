@@ -1,0 +1,447 @@
+import React, { useEffect, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { Minus, Plus } from 'lucide-react';
+import { getMapboxAccessToken } from '../../config/env';
+import { KOLOMBONG_HQ_LAT, KOLOMBONG_HQ_LNG } from '../../constants/sabahData';
+import { latLngToMapCoords, mapCoordsToLatLng } from '../../engines/domainEngines';
+import { RescueStage } from '../../types/repairbah';
+
+export interface AppMapViewProps {
+  centerX: number;
+  centerY: number;
+  zoom: number;
+  stage?: RescueStage;
+  pinLat?: number;
+  pinLng?: number;
+  responderLat?: number;
+  responderLng?: number;
+  interactive?: boolean;
+  showResponder?: boolean;
+  responderProgress?: number;
+  flyToTrigger?: number;
+  onPanUpdate?: (newX: number, newY: number) => void;
+  onZoomChange?: (newZoom: number) => void;
+  isLight: boolean;
+}
+
+export const AppMapView: React.FC<AppMapViewProps> = ({
+  centerX,
+  centerY,
+  zoom,
+  stage,
+  pinLat,
+  pinLng,
+  responderLat,
+  responderLng,
+  interactive = true,
+  showResponder = false,
+  responderProgress = 0.1,
+  flyToTrigger = 0,
+  onPanUpdate,
+  onZoomChange,
+  isLight,
+}) => {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const responderMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const hqMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const programmaticMoveRef = useRef(false);
+  const onPanUpdateRef = useRef(onPanUpdate);
+  onPanUpdateRef.current = onPanUpdate;
+
+  const fallbackPinCoords = mapCoordsToLatLng(centerX, centerY);
+  const resolvedPinLat = pinLat ?? fallbackPinCoords.lat;
+  const resolvedPinLng = pinLng ?? fallbackPinCoords.lng;
+  const resolvedRespLat =
+    responderLat ??
+    KOLOMBONG_HQ_LAT + (resolvedPinLat - KOLOMBONG_HQ_LAT) * responderProgress;
+  const resolvedRespLng =
+    responderLng ??
+    KOLOMBONG_HQ_LNG + (resolvedPinLng - KOLOMBONG_HQ_LNG) * responderProgress;
+
+  const targetCoordsRef = useRef({
+    pinLat: resolvedPinLat,
+    pinLng: resolvedPinLng,
+    respLat: resolvedRespLat,
+    respLng: resolvedRespLng,
+    responderVisible: showResponder || (stage !== undefined && stage >= 3),
+  });
+  targetCoordsRef.current = {
+    pinLat: resolvedPinLat,
+    pinLng: resolvedPinLng,
+    respLat: resolvedRespLat,
+    respLng: resolvedRespLng,
+    responderVisible: showResponder || (stage !== undefined && stage >= 3),
+  };
+
+  const interpRespRef = useRef({
+    lat: resolvedRespLat,
+    lng: resolvedRespLng,
+  });
+  const [interpPos, setInterpPos] = useState({
+    lat: resolvedRespLat,
+    lng: resolvedRespLng,
+  });
+  const [styleLoaded, setStyleLoaded] = useState(false);
+  const [mapboxFallback, setMapboxFallback] = useState(false);
+
+  const toMapboxZoom = (z: number) =>
+    Math.max(10.5, Math.min(18, 12.2 + (z - 0.85) * 2.2));
+
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    mapboxgl.accessToken = getMapboxAccessToken();
+
+    let map: mapboxgl.Map | null = null;
+    try {
+      map = new mapboxgl.Map({
+        container,
+        style: isLight
+          ? 'mapbox://styles/mapbox/navigation-day-v1'
+          : 'mapbox://styles/mapbox/navigation-night-v1',
+        center: [resolvedPinLng, resolvedPinLat],
+        zoom: toMapboxZoom(zoom),
+        interactive,
+        attributionControl: false,
+      });
+      mapRef.current = map;
+
+      const hqEl = document.createElement('div');
+      hqEl.className =
+        'w-4 h-4 rounded-full bg-emerald-500 border-2 border-emerald-950 shadow-lg';
+      hqEl.title = 'Kolombong HQ';
+      hqMarkerRef.current = new mapboxgl.Marker({ element: hqEl })
+        .setLngLat([KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT])
+        .addTo(map);
+
+      const pinEl = document.createElement('div');
+      pinEl.className = 'w-3 h-3 rounded-full bg-red-500/80 ring-4 ring-red-500/25';
+      pinMarkerRef.current = new mapboxgl.Marker({ element: pinEl })
+        .setLngLat([resolvedPinLng, resolvedPinLat])
+        .addTo(map);
+
+      const respEl = document.createElement('div');
+      respEl.className = 'flex flex-col items-center pointer-events-none';
+      respEl.innerHTML =
+        '<span class="px-1.5 py-0.5 rounded bg-blue-950/90 border border-blue-400/60 text-[10px] font-black text-blue-300 whitespace-nowrap mb-1">KK-204 ROY</span><div class="w-5 h-5 rounded-full bg-blue-600 border-2 border-white shadow-[0_0_16px_rgba(37,99,235,0.85)]"></div>';
+      const respMarker = new mapboxgl.Marker({ element: respEl }).setLngLat([
+        resolvedRespLng,
+        resolvedRespLat,
+      ]);
+      if (targetCoordsRef.current.responderVisible) {
+        respMarker.addTo(map);
+      }
+      responderMarkerRef.current = respMarker;
+
+      const ensureRouteLayer = () => {
+        if (!map || !map.isStyleLoaded()) return;
+        if (!map.getSource('rescue-route')) {
+          map.addSource('rescue-route', {
+            type: 'geojson',
+            data: {
+              type: 'Feature',
+              properties: {},
+              geometry: {
+                type: 'LineString',
+                coordinates: [
+                  [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                  [resolvedPinLng, resolvedPinLat],
+                ],
+              },
+            },
+          });
+        }
+        if (!map.getLayer('rescue-route-line')) {
+          map.addLayer({
+            id: 'rescue-route-line',
+            type: 'line',
+            source: 'rescue-route',
+            paint: {
+              'line-color': '#EF4444',
+              'line-width': 4,
+              'line-dasharray': [2, 2],
+            },
+          });
+        }
+      };
+
+      map.on('load', () => {
+        setStyleLoaded(true);
+        setMapboxFallback(false);
+        ensureRouteLayer();
+      });
+
+      map.on('style.load', () => {
+        setStyleLoaded(true);
+        ensureRouteLayer();
+      });
+
+      map.on('error', () => {
+        setMapboxFallback(true);
+      });
+
+      map.on('moveend', () => {
+        if (programmaticMoveRef.current) {
+          programmaticMoveRef.current = false;
+          return;
+        }
+        if (!interactive || !map || !onPanUpdateRef.current) return;
+        const c = map.getCenter();
+        const clampedLat = Math.max(5.87, Math.min(6.09, c.lat));
+        const clampedLng = Math.max(116.01, Math.min(116.17, c.lng));
+        const coords = latLngToMapCoords(clampedLat, clampedLng);
+        onPanUpdateRef.current(coords.mapX, coords.mapY);
+      });
+    } catch {
+      setMapboxFallback(true);
+    }
+
+    return () => {
+      pinMarkerRef.current?.remove();
+      responderMarkerRef.current?.remove();
+      hqMarkerRef.current?.remove();
+      map?.remove();
+      mapRef.current = null;
+      pinMarkerRef.current = null;
+      responderMarkerRef.current = null;
+      hqMarkerRef.current = null;
+    };
+  }, [interactive]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      setStyleLoaded(false);
+      map.setStyle(
+        isLight
+          ? 'mapbox://styles/mapbox/navigation-day-v1'
+          : 'mapbox://styles/mapbox/navigation-night-v1'
+      );
+    } catch {
+      setMapboxFallback(true);
+    }
+  }, [isLight]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const targetZoom = toMapboxZoom(zoom);
+    programmaticMoveRef.current = true;
+    try {
+      if (flyToTrigger > 0) {
+        map.flyTo({
+          center: [resolvedPinLng, resolvedPinLat],
+          zoom: targetZoom,
+          duration: 850,
+        });
+      } else {
+        map.easeTo({
+          center: [resolvedPinLng, resolvedPinLat],
+          zoom: targetZoom,
+          duration: 280,
+        });
+      }
+    } catch {
+      programmaticMoveRef.current = false;
+    }
+  }, [resolvedPinLat, resolvedPinLng, zoom, flyToTrigger]);
+
+  useEffect(() => {
+    let frameId = 0;
+    let lastNow = performance.now();
+
+    const step = (now: number) => {
+      const dt = Math.min(0.1, (now - lastNow) / 1000);
+      lastNow = now;
+      const targets = targetCoordsRef.current;
+      const lerpAlpha = Math.min(1, dt * 10);
+
+      interpRespRef.current.lat +=
+        (targets.respLat - interpRespRef.current.lat) * lerpAlpha;
+      interpRespRef.current.lng +=
+        (targets.respLng - interpRespRef.current.lng) * lerpAlpha;
+
+      const curLat = interpRespRef.current.lat;
+      const curLng = interpRespRef.current.lng;
+
+      pinMarkerRef.current?.setLngLat([targets.pinLng, targets.pinLat]);
+
+      const map = mapRef.current;
+      const respMarker = responderMarkerRef.current;
+      if (map && respMarker) {
+        respMarker.setLngLat([curLng, curLat]);
+        const isAttached = Boolean(respMarker.getElement().parentElement);
+        if (targets.responderVisible && !isAttached) {
+          respMarker.addTo(map);
+        } else if (!targets.responderVisible && isAttached) {
+          respMarker.remove();
+        }
+        const routeSrc = map.getSource('rescue-route') as
+          | mapboxgl.GeoJSONSource
+          | undefined;
+        if (routeSrc && styleLoaded) {
+          routeSrc.setData({
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates: targets.responderVisible
+                ? [
+                    [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                    [curLng, curLat],
+                    [targets.pinLng, targets.pinLat],
+                  ]
+                : [
+                    [KOLOMBONG_HQ_LNG, KOLOMBONG_HQ_LAT],
+                    [targets.pinLng, targets.pinLat],
+                  ],
+            },
+          });
+        }
+      }
+
+      if (mapboxFallback) {
+        setInterpPos({ lat: curLat, lng: curLng });
+      }
+
+      frameId = requestAnimationFrame(step);
+    };
+
+    frameId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frameId);
+  }, [styleLoaded, mapboxFallback]);
+
+  const draggingRef = useRef(false);
+  const lastPointerRef = useRef({ x: 0, y: 0 });
+  const handleFallbackPointerDown = (e: React.PointerEvent) => {
+    if (!mapboxFallback || !interactive) return;
+    draggingRef.current = true;
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const handleFallbackPointerMove = (e: React.PointerEvent) => {
+    if (!mapboxFallback || !interactive || !draggingRef.current || !onPanUpdate)
+      return;
+    const dx = e.clientX - lastPointerRef.current.x;
+    const dy = e.clientY - lastPointerRef.current.y;
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
+    const nextX = Math.max(120, Math.min(880, centerX - dx / zoom));
+    const nextY = Math.max(80, Math.min(900, centerY - dy / zoom));
+    onPanUpdate(nextX, nextY);
+  };
+  const handleFallbackPointerUp = () => {
+    draggingRef.current = false;
+  };
+
+  const interpMapPos = latLngToMapCoords(interpPos.lat, interpPos.lng);
+  const showResp = showResponder || (stage !== undefined && stage >= 3);
+
+  return (
+    <div
+      onPointerDown={handleFallbackPointerDown}
+      onPointerMove={handleFallbackPointerMove}
+      onPointerUp={handleFallbackPointerUp}
+      onPointerCancel={handleFallbackPointerUp}
+      className={`relative w-full h-full overflow-hidden select-none touch-none ${
+        interactive ? 'cursor-grab active:cursor-grabbing' : ''
+      } ${isLight ? 'bg-[#E2E8F0]' : 'bg-[#090D14]'}`}
+    >
+      {mapboxFallback && (
+        <div
+          className={`absolute inset-0 pointer-events-none ${
+            isLight
+              ? 'bg-[radial-gradient(circle_at_30%_30%,#E0F2FE_0%,#E2E8F0_60%,#CBD5E1_100%)]'
+              : 'bg-[radial-gradient(circle_at_30%_30%,#0B192C_0%,#090D14_65%,#05070B_100%)]'
+          }`}
+        >
+          <div
+            className="absolute inset-0 opacity-25"
+            style={{
+              backgroundImage: isLight
+                ? 'linear-gradient(#94A3B8 1px, transparent 1px), linear-gradient(90deg, #94A3B8 1px, transparent 1px)'
+                : 'linear-gradient(#1E293B 1px, transparent 1px), linear-gradient(90deg, #1E293B 1px, transparent 1px)',
+              backgroundSize: `${Math.round(36 * zoom)}px ${Math.round(36 * zoom)}px`,
+            }}
+          />
+          <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/50 border border-white/10 text-[10px] font-mono text-gray-300">
+            Mapbox {isLight ? 'Day' : 'Night'} • {resolvedPinLat.toFixed(4)},{' '}
+            {resolvedPinLng.toFixed(4)}
+          </div>
+          {showResp && (
+            <div
+              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-none"
+              style={{
+                left: `${Math.max(
+                  12,
+                  Math.min(88, 50 + (interpMapPos.mapX - centerX) * 0.25)
+                )}%`,
+                top: `${Math.max(
+                  12,
+                  Math.min(88, 50 + (interpMapPos.mapY - centerY) * 0.25)
+                )}%`,
+              }}
+            >
+              <span className="px-1.5 py-0.5 rounded bg-blue-950/90 border border-blue-400/60 text-[10px] font-black text-blue-300 whitespace-nowrap mb-1">
+                KK-204 ROY
+              </span>
+              <div className="w-5 h-5 rounded-full bg-blue-600 border-2 border-white shadow-[0_0_16px_rgba(37,99,235,0.85)]" />
+            </div>
+          )}
+        </div>
+      )}
+
+      <div
+        ref={mapContainerRef}
+        className={`w-full h-full ${
+          mapboxFallback ? 'opacity-20 pointer-events-none' : 'opacity-100'
+        }`}
+      />
+
+      <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center z-10">
+        <div className="relative flex flex-col items-center animate-bounce">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-700 border-2 border-white shadow-[0_8px_24px_rgba(220,38,38,0.65)] flex items-center justify-center">
+            <div className="w-3 h-3 rounded-full bg-white" />
+          </div>
+          <div className="w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[12px] border-t-red-700 -mt-1" />
+        </div>
+        <div className="w-5 h-1.5 rounded-full bg-black/60 blur-[1.5px] mt-0.5" />
+      </div>
+
+      {interactive && onZoomChange && (
+        <div className="absolute right-3 top-16 flex flex-col gap-2 z-10">
+          <button
+            onClick={() =>
+              onZoomChange(Math.min(2.2, Number((zoom + 0.25).toFixed(2))))
+            }
+            aria-label="Zoom in"
+            className={`w-10 h-10 rounded-full border shadow-lg flex items-center justify-center ${
+              isLight
+                ? 'bg-white border-slate-300 text-slate-900'
+                : 'bg-[#141923]/90 border-[#282C37] text-white'
+            }`}
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() =>
+              onZoomChange(Math.max(0.85, Number((zoom - 0.25).toFixed(2))))
+            }
+            aria-label="Zoom out"
+            className={`w-10 h-10 rounded-full border shadow-lg flex items-center justify-center ${
+              isLight
+                ? 'bg-white border-slate-300 text-slate-900'
+                : 'bg-[#141923]/90 border-[#282C37] text-white'
+            }`}
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};

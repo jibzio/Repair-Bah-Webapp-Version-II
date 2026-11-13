@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
@@ -20,11 +20,112 @@ const VALID_SERVICES = new Set([
 
 const VALID_SEVERITIES = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 30;
+const ipRequestLog = new Map<string, number[]>();
+
+function apiRateLimiter(req: Request, res: Response, next: NextFunction) {
+  const now = Date.now();
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const clientIp =
+    (typeof forwardedFor === 'string'
+      ? forwardedFor.split(',')[0].trim()
+      : Array.isArray(forwardedFor)
+      ? forwardedFor[0]
+      : '') ||
+    req.ip ||
+    req.socket.remoteAddress ||
+    'unknown';
+
+  const recent = (ipRequestLog.get(clientIp) || []).filter(
+    (ts) => now - ts < RATE_LIMIT_WINDOW_MS
+  );
+
+  if (recent.length >= RATE_LIMIT_MAX_REQUESTS) {
+    const oldest = recent[0] ?? now;
+    const retryAfterSec = Math.max(
+      1,
+      Math.ceil((RATE_LIMIT_WINDOW_MS - (now - oldest)) / 1000)
+    );
+    res.setHeader('Retry-After', String(retryAfterSec));
+    res.status(429).json({
+      error: 'Rate limit exceeded (30 requests/minute). Please try again shortly.',
+    });
+    return;
+  }
+
+  recent.push(now);
+  ipRequestLog.set(clientIp, recent);
+
+  if (ipRequestLog.size > 500) {
+    for (const [ip, hits] of ipRequestLog.entries()) {
+      const active = hits.filter((ts) => now - ts < RATE_LIMIT_WINDOW_MS);
+      if (active.length === 0) {
+        ipRequestLog.delete(ip);
+      } else {
+        ipRequestLog.set(ip, active);
+      }
+    }
+  }
+
+  next();
+}
+
+function getValidWorkforcePins(): Set<string> {
+  const pins = new Set<string>(['4402', '1234']);
+  const envPin = process.env.WORKFORCE_ACCESS_PIN?.trim();
+  if (envPin) {
+    pins.add(envPin);
+  }
+  return pins;
+}
+
 async function startServer() {
   const app = express();
   const port = Number(process.env.PORT || 3000);
 
-  app.use(express.json());
+  app.set('trust proxy', 1);
+
+  // Standard security headers
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api', apiRateLimiter);
+
+  app.get('/api/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.post('/api/auth/verify-pin', (req, res) => {
+    const pin = typeof req.body?.pin === 'string' ? req.body.pin.trim() : '';
+    if (!pin) {
+      res.status(400).json({ valid: false, error: 'PIN is required' });
+      return;
+    }
+
+    const validPins = getValidWorkforcePins();
+    if (validPins.has(pin)) {
+      res.json({
+        valid: true,
+        role: 'workforce',
+        expiresInMs: 15 * 60 * 1000,
+      });
+      return;
+    }
+
+    res.status(401).json({
+      valid: false,
+      error: 'Invalid workforce PIN',
+    });
+  });
 
   app.post('/api/gemini/diagnose', async (req, res) => {
     try {
